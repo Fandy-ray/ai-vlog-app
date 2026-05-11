@@ -36,6 +36,24 @@
       },
       "pages/DemoDetail": {
         "component": "index"
+      },
+      "pages/home": {
+        "component": "index"
+      },
+      "pages/style": {
+        "component": "index"
+      },
+      "pages/shoot": {
+        "component": "index"
+      },
+      "pages/upload": {
+        "component": "index"
+      },
+      "pages/generate": {
+        "component": "index"
+      },
+      "pages/preview": {
+        "component": "index"
       }
     },
     "widgets": {
@@ -61,6 +79,24 @@
       },
       "pages/DemoDetail": {
         "titleBarText": "详情页"
+      },
+      "pages/home": {
+        "titleBarText": "首页"
+      },
+      "pages/style": {
+        "titleBarText": "风格"
+      },
+      "pages/shoot": {
+        "titleBarText": "拍摄"
+      },
+      "pages/upload": {
+        "titleBarText": "上传"
+      },
+      "pages/generate": {
+        "titleBarText": "生成"
+      },
+      "pages/preview": {
+        "titleBarText": "预览"
       }
     }
   }
