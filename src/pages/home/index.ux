@@ -1,30 +1,241 @@
 <template>
-  <div class="wrapper">
-    <text class="title">{{ title }}</text>
+  <div class="page">
+    <div class="hero">
+      <text class="title">AI Vlog</text>
+      <text class="subtitle">根据后端 Mock 接口串联流程：风格 -> 拍摄指引 -> 上传 -> 生成 -> 预览</text>
+      <text class="api">接口基址：{{ apiBase }}</text>
+    </div>
+
+    <div class="status {{ healthOk ? 'status-ok' : 'status-warn' }}">
+      <text class="status-dot">{{ healthOk ? '●' : '○' }}</text>
+      <text class="status-text">{{ healthText }}</text>
+    </div>
+
+    <div class="summary">
+      <div class="summary-item">
+        <text class="summary-label">当前类型</text>
+        <text class="summary-value">{{ selectedTypeName }}</text>
+      </div>
+      <div class="summary-item">
+        <text class="summary-label">视觉风格</text>
+        <text class="summary-value">{{ selectedStyleName }}</text>
+      </div>
+      <div class="summary-item">
+        <text class="summary-label">素材数量</text>
+        <text class="summary-value">{{ materialCount }} 个</text>
+      </div>
+    </div>
+
+    <div class="actions">
+      <input class="btn primary" type="button" value="选择风格" onclick="goStyle" />
+      <input class="btn" type="button" value="{{ shootButtonText }}" onclick="goShoot" />
+      <input class="btn" type="button" value="上传素材" onclick="goUpload" />
+      <input class="btn" type="button" value="生成 Vlog" onclick="goGenerate" />
+      <input class="btn" type="button" value="预览结果" onclick="goPreview" />
+      <input class="btn ghost" type="button" value="重新健康检查" onclick="checkHealth" />
+    </div>
   </div>
 </template>
 
 <script>
+import router from '@system.router'
+import vlogApi from '../../helper/apis/vlog'
+import store from '../../helper/store'
+import $utils from '../../helper/utils'
+
+function findName(list = [], key, value, fallback) {
+  const target = list.find(item => item[key] === value)
+  return target ? target.name : fallback
+}
+
 export default {
   private: {
-    title: '首页',
+    apiBase: '',
+    healthOk: false,
+    healthText: '正在检查后端...',
+    selectedTypeName: '学习 vlog',
+    selectedStyleName: '学习 vlog',
+    materialCount: 0,
+    shootButtonText: '拍摄指引（需先选风格）'
   },
 
   onInit() {
     this.$page.setTitleBar({ text: '首页' })
+    this.apiBase = vlogApi.getApiBase()
+    this.syncState()
+    this.checkHealth()
   },
+
+  onShow() {
+    this.syncState()
+  },
+
+  syncState() {
+    const state = store.state
+    this.materialCount = state.materials.length
+    this.selectedTypeName = findName(state.types, 'type', state.type, '学习 vlog')
+    this.selectedStyleName = findName(state.styles, 'id', state.style, '学习 vlog')
+    this.shootButtonText = state.type ? '拍摄指引' : '拍摄指引（需先选风格）'
+  },
+
+  checkHealth() {
+    this.healthText = '正在检查后端...'
+
+    vlogApi
+      .health()
+      .then(result => {
+        this.healthOk = !!(result && result.ok)
+        this.healthText = result && result.message ? result.message : 'Memento backend is running'
+        store.setState({ health: result })
+      })
+      .catch(() => {
+        this.healthOk = false
+        this.healthText = '后端未连接，当前会自动使用本地 Mock'
+      })
+  },
+
+  goStyle() {
+    router.push({ uri: '/pages/style' })
+  },
+
+  goShoot() {
+    if (!store.state.type) {
+      $utils.showToast('请先选择风格')
+      return
+    }
+
+    router.push({ uri: '/pages/shoot' })
+  },
+
+  goUpload() {
+    router.push({ uri: '/pages/upload' })
+  },
+
+  goGenerate() {
+    router.push({ uri: '/pages/generate' })
+  },
+
+  goPreview() {
+    if (!store.state.result) {
+      $utils.showToast('还没有生成结果')
+      return
+    }
+
+    router.push({ uri: '/pages/preview' })
+  }
 }
 </script>
 
 <style lang="less">
 @import './../../assets/styles/style.less';
 
-.wrapper {
-  .flex-box-mixins(column, center, center);
-  .title {
-    font-size: 8 * @size-factor;
-    text-align: center;
-    color: @black;
-  }
+.page {
+  flex-direction: column;
+  padding: 36px;
+  background-color: #f7f8f5;
+}
+
+.hero {
+  flex-direction: column;
+  margin-bottom: 28px;
+}
+
+.title {
+  font-size: 54px;
+  font-weight: bold;
+  color: #111111;
+  margin-bottom: 18px;
+}
+
+.subtitle {
+  font-size: 30px;
+  line-height: 44px;
+  color: #7c818a;
+  margin-bottom: 14px;
+}
+
+.api {
+  font-size: 24px;
+  color: #8c9199;
+}
+
+.status {
+  flex-direction: row;
+  align-items: center;
+  padding: 24px;
+  border-radius: 10px;
+  margin-bottom: 24px;
+  background-color: #ffffff;
+}
+
+.status-ok {
+  border-left-width: 8px;
+  border-left-color: #4b8f6f;
+}
+
+.status-warn {
+  border-left-width: 8px;
+  border-left-color: #d38b3f;
+}
+
+.status-dot {
+  width: 42px;
+  font-size: 28px;
+  color: #4b8f6f;
+}
+
+.status-text {
+  flex: 1;
+  font-size: 30px;
+  color: #20242a;
+}
+
+.summary {
+  flex-direction: column;
+  background-color: #ffffff;
+  border-radius: 10px;
+  padding: 8px 24px;
+  margin-bottom: 28px;
+}
+
+.summary-item {
+  flex-direction: row;
+  justify-content: space-between;
+  padding: 18px 0;
+  border-bottom-width: 1px;
+  border-bottom-color: #eceef0;
+}
+
+.summary-label {
+  font-size: 26px;
+  color: #8b9097;
+}
+
+.summary-value {
+  font-size: 28px;
+  color: #1f2a32;
+}
+
+.actions {
+  flex-direction: column;
+}
+
+.btn {
+  height: 72px;
+  margin-bottom: 20px;
+  border-radius: 10px;
+  background-color: #e9ebee;
+  color: #111111;
+  font-size: 30px;
+}
+
+.primary {
+  background-color: #2f6f58;
+  color: #ffffff;
+}
+
+.ghost {
+  background-color: #ffffff;
+  color: #2f6f58;
 }
 </style>

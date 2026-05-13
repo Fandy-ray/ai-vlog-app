@@ -1,30 +1,295 @@
 <template>
-  <div class="wrapper">
-    <text class="title">{{ title }}</text>
+  <div class="page">
+    <div class="top">
+      <text class="heading">生成 Vlog</text>
+      <text class="hint">{{ statusText }}</text>
+    </div>
+
+    <div class="loading" if="{{ loading }}">
+      <text class="loading-title">生成中...</text>
+      <text class="loading-text">正在按镜头计划排序素材、套用模板和配乐。</text>
+    </div>
+
+    <div class="result" if="{{ !loading && result }}">
+      <text class="result-title">{{ result.title }}</text>
+      <text class="result-meta">{{ result.exportConfig.ratio }} / {{ result.exportConfig.resolution }} / {{ result.exportConfig.duration }}s</text>
+      <text class="narration">{{ result.narration }}</text>
+    </div>
+
+    <div class="steps" if="{{ !loading && steps.length }}">
+      <block for="{{ (index, step) in steps }}">
+        <div class="step">
+          <text class="step-index">{{ index + 1 }}</text>
+          <div class="step-main">
+            <text class="step-name">{{ step.name }}</text>
+            <text class="step-desc">{{ step.template || step.bgm || step.count }}</text>
+          </div>
+          <text class="step-status">{{ step.status }}</text>
+        </div>
+      </block>
+    </div>
+
+    <div class="timeline" if="{{ !loading && timeline.length }}">
+      <text class="subheading">时间线</text>
+      <block for="{{ (index, item) in timeline }}">
+        <div class="timeline-item">
+          <text class="timeline-order">{{ item.order }}</text>
+          <div class="timeline-main">
+            <text class="timeline-title">{{ item.shotTitle }}</text>
+            <text class="timeline-meta">{{ item.materialName }} / {{ item.transition }} / {{ item.duration }}s</text>
+          </div>
+        </div>
+      </block>
+    </div>
+
+    <div class="actions">
+      <input class="btn primary" type="button" value="预览结果" onclick="goPreview" />
+      <input class="btn" type="button" value="重新生成" onclick="generate" />
+      <input class="btn" type="button" value="返回上传素材" onclick="goUpload" />
+    </div>
   </div>
 </template>
 
 <script>
+import router from '@system.router'
+import vlogApi from '../../helper/apis/vlog'
+import store from '../../helper/store'
+import $utils from '../../helper/utils'
+
 export default {
   private: {
-    title: '生成',
+    loading: false,
+    statusText: '准备生成',
+    result: null,
+    steps: [],
+    timeline: []
   },
 
   onInit() {
     this.$page.setTitleBar({ text: '生成' })
+    this.generate()
   },
+
+  generate() {
+    this.loading = true
+    this.statusText = '正在调用生成接口...'
+
+    vlogApi
+      .generateVlog({
+        type: store.state.type || 'study',
+        style: store.state.style || 'study',
+        shotPlan: store.state.shotPlan,
+        materials: store.state.materials || []
+      })
+      .then(result => {
+        this.result = result
+        this.steps = result.steps || []
+        this.timeline = result.timeline || []
+        this.statusText = '生成完成'
+        store.setState({ result })
+      })
+      .catch(() => {
+        this.statusText = '生成失败'
+        $utils.showToast('生成失败')
+      })
+      .finally(() => {
+        this.loading = false
+      })
+  },
+
+  goPreview() {
+    if (!store.state.result) {
+      $utils.showToast('还没有生成结果')
+      return
+    }
+
+    router.push({ uri: '/pages/preview' })
+  },
+
+  goUpload() {
+    router.push({ uri: '/pages/upload' })
+  }
 }
 </script>
 
 <style lang="less">
 @import './../../assets/styles/style.less';
 
-.wrapper {
-  .flex-box-mixins(column, center, center);
-  .title {
-    font-size: 8 * @size-factor;
-    text-align: center;
-    color: @black;
-  }
+.page {
+  flex-direction: column;
+  padding: 32px;
+  background-color: #f7f8f5;
+}
+
+.top {
+  flex-direction: column;
+  margin-bottom: 22px;
+}
+
+.heading {
+  font-size: 38px;
+  font-weight: bold;
+  color: #12181f;
+  margin-bottom: 10px;
+}
+
+.hint {
+  font-size: 24px;
+  color: #7c838b;
+}
+
+.loading {
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 260px;
+  padding: 32px;
+  border-radius: 10px;
+  background-color: #ffffff;
+  margin-bottom: 22px;
+}
+
+.loading-title {
+  font-size: 34px;
+  color: #12181f;
+  margin-bottom: 12px;
+}
+
+.loading-text {
+  font-size: 24px;
+  color: #7c838b;
+  text-align: center;
+}
+
+.result {
+  flex-direction: column;
+  padding: 26px;
+  border-radius: 10px;
+  background-color: #ffffff;
+  margin-bottom: 20px;
+}
+
+.result-title {
+  font-size: 32px;
+  font-weight: bold;
+  color: #12181f;
+  margin-bottom: 10px;
+}
+
+.result-meta {
+  font-size: 23px;
+  color: #456b86;
+  margin-bottom: 16px;
+}
+
+.narration {
+  font-size: 24px;
+  line-height: 36px;
+  color: #5c646d;
+}
+
+.steps {
+  flex-direction: column;
+  margin-bottom: 20px;
+}
+
+.step {
+  flex-direction: row;
+  align-items: center;
+  padding: 18px 22px;
+  margin-bottom: 12px;
+  border-radius: 10px;
+  background-color: #ffffff;
+}
+
+.step-index {
+  width: 40px;
+  height: 40px;
+  border-radius: 20px;
+  text-align: center;
+  background-color: #2f6f58;
+  color: #ffffff;
+  font-size: 22px;
+}
+
+.step-main {
+  flex: 1;
+  flex-direction: column;
+  margin-left: 16px;
+}
+
+.step-name {
+  font-size: 26px;
+  color: #12181f;
+}
+
+.step-desc {
+  font-size: 21px;
+  color: #8a9098;
+}
+
+.step-status {
+  font-size: 22px;
+  color: #2f6f58;
+}
+
+.subheading {
+  font-size: 30px;
+  font-weight: bold;
+  color: #12181f;
+  margin-bottom: 14px;
+}
+
+.timeline {
+  flex-direction: column;
+  margin-bottom: 22px;
+}
+
+.timeline-item {
+  flex-direction: row;
+  padding: 18px 20px;
+  margin-bottom: 12px;
+  border-radius: 10px;
+  background-color: #ffffff;
+}
+
+.timeline-order {
+  width: 42px;
+  color: #2f6f58;
+  font-size: 26px;
+}
+
+.timeline-main {
+  flex: 1;
+  flex-direction: column;
+}
+
+.timeline-title {
+  font-size: 25px;
+  color: #12181f;
+  margin-bottom: 6px;
+}
+
+.timeline-meta {
+  font-size: 21px;
+  color: #8a9098;
+}
+
+.actions {
+  flex-direction: column;
+}
+
+.btn {
+  height: 70px;
+  margin-bottom: 16px;
+  border-radius: 10px;
+  background-color: #e9ebee;
+  color: #111111;
+  font-size: 29px;
+}
+
+.primary {
+  background-color: #2f6f58;
+  color: #ffffff;
 }
 </style>

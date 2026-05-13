@@ -1,30 +1,257 @@
 <template>
-  <div class="wrapper">
-    <text class="title">{{ title }}</text>
+  <div class="page">
+    <div class="topbar">
+      <div class="top-main">
+        <text class="heading">拍摄指引</text>
+        <text class="hint">{{ description }}</text>
+      </div>
+      <text class="badge">{{ selectedName }}</text>
+    </div>
+
+    <div class="loading" if="{{ loading }}">
+      <text class="loading-text">正在生成镜头计划...</text>
+    </div>
+
+    <div class="guide" if="{{ !loading }}">
+      <block for="{{ (index, item) in guide }}">
+        <div class="guide-item">
+          <text class="guide-index">{{ index + 1 }}</text>
+          <text class="guide-text">{{ item }}</text>
+        </div>
+      </block>
+    </div>
+
+    <text class="subheading" if="{{ !loading }}">镜头拆解</text>
+    <div class="shots" if="{{ !loading }}">
+      <block for="{{ (index, shot) in shots }}">
+        <div class="shot">
+          <div class="shot-head">
+            <text class="shot-title">{{ shot.title }}</text>
+            <text class="shot-duration">{{ shot.duration }}s</text>
+          </div>
+          <text class="shot-meta">{{ shot.view }} / {{ shot.cameraMove }}</text>
+          <text class="shot-scene">{{ shot.scene }}</text>
+          <text class="shot-tips">{{ shot.tips }}</text>
+        </div>
+      </block>
+    </div>
+
+    <div class="actions">
+      <input class="btn primary" type="button" value="去上传素材" onclick="goUpload" />
+      <input class="btn" type="button" value="重新生成指引" onclick="loadShotPlan" />
+    </div>
   </div>
 </template>
 
 <script>
+import router from '@system.router'
+import vlogApi from '../../helper/apis/vlog'
+import store from '../../helper/store'
+import $utils from '../../helper/utils'
+
+function findTypeName(type) {
+  const target = store.state.types.find(item => item.type === type)
+  return target ? target.name : '学习 vlog'
+}
+
 export default {
   private: {
-    title: '拍摄',
+    loading: false,
+    selectedName: '学习 vlog',
+    description: '',
+    guide: [],
+    shots: []
   },
 
   onInit() {
     this.$page.setTitleBar({ text: '拍摄' })
+    this.selectedName = findTypeName(store.state.type)
+    this.loadShotPlan()
   },
+
+  loadShotPlan() {
+    const type = store.state.type || 'study'
+    const style = store.state.style || 'study'
+    this.loading = true
+
+    vlogApi
+      .getAiShotPlan({ type, style })
+      .then(plan => {
+        this.description = plan.description
+        this.guide = plan.guide || []
+        this.shots = plan.shots || []
+        store.setState({ shotPlan: plan })
+      })
+      .catch(() => {
+        $utils.showToast('拍摄指引加载失败')
+      })
+      .finally(() => {
+        this.loading = false
+      })
+  },
+
+  goUpload() {
+    router.push({ uri: '/pages/upload' })
+  }
 }
 </script>
 
 <style lang="less">
 @import './../../assets/styles/style.less';
 
-.wrapper {
-  .flex-box-mixins(column, center, center);
-  .title {
-    font-size: 8 * @size-factor;
-    text-align: center;
-    color: @black;
-  }
+.page {
+  flex-direction: column;
+  padding: 32px;
+  background-color: #f7f8f5;
+}
+
+.topbar {
+  flex-direction: row;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 22px;
+}
+
+.top-main {
+  flex: 1;
+  flex-direction: column;
+}
+
+.heading {
+  font-size: 38px;
+  font-weight: bold;
+  color: #12181f;
+  margin-bottom: 8px;
+}
+
+.hint {
+  font-size: 24px;
+  color: #7c838b;
+  line-height: 36px;
+}
+
+.badge {
+  padding: 10px 16px;
+  border-radius: 8px;
+  background-color: #e7eee9;
+  color: #2f6f58;
+  font-size: 22px;
+}
+
+.loading {
+  height: 180px;
+  align-items: center;
+  justify-content: center;
+}
+
+.loading-text {
+  font-size: 28px;
+  color: #7c838b;
+}
+
+.guide {
+  flex-direction: column;
+  margin-bottom: 24px;
+}
+
+.guide-item {
+  flex-direction: row;
+  align-items: center;
+  padding: 18px 20px;
+  margin-bottom: 14px;
+  border-radius: 10px;
+  background-color: #ffffff;
+}
+
+.guide-index {
+  width: 42px;
+  height: 42px;
+  border-radius: 21px;
+  text-align: center;
+  background-color: #2f6f58;
+  color: #ffffff;
+  font-size: 24px;
+}
+
+.guide-text {
+  flex: 1;
+  margin-left: 16px;
+  font-size: 26px;
+  color: #20242a;
+}
+
+.subheading {
+  font-size: 32px;
+  font-weight: bold;
+  color: #12181f;
+  margin-bottom: 16px;
+}
+
+.shots {
+  flex-direction: column;
+}
+
+.shot {
+  flex-direction: column;
+  padding: 24px;
+  margin-bottom: 16px;
+  border-radius: 10px;
+  background-color: #ffffff;
+}
+
+.shot-head {
+  flex-direction: row;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.shot-title {
+  flex: 1;
+  font-size: 28px;
+  font-weight: bold;
+  color: #12181f;
+}
+
+.shot-duration {
+  font-size: 22px;
+  color: #2f6f58;
+}
+
+.shot-meta {
+  font-size: 23px;
+  color: #456b86;
+  margin-bottom: 8px;
+}
+
+.shot-scene {
+  font-size: 24px;
+  color: #555d66;
+  margin-bottom: 8px;
+}
+
+.shot-tips {
+  font-size: 22px;
+  color: #8a9098;
+  line-height: 34px;
+}
+
+.actions {
+  flex-direction: column;
+  margin-top: 12px;
+}
+
+.btn {
+  height: 70px;
+  margin-bottom: 18px;
+  border-radius: 10px;
+  background-color: #e9ebee;
+  color: #111111;
+  font-size: 29px;
+}
+
+.primary {
+  background-color: #2f6f58;
+  color: #ffffff;
 }
 </style>

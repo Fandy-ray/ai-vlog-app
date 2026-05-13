@@ -40,6 +40,33 @@
 
 推荐下载[快应用开发工具](https://www.quickapp.cn/docCenter/IDEPublicity)，可以进行扫码调试 / USB 调试，还有模拟器预览、语法提示等功能。使用方法，请参见[快应用开发工具文档](https://doc.quickapp.cn/tutorial/ide/overview.html)。
 
+### AI Vlog 联调流程
+
+本项目当前包含快应用前端和 `backend/` Mock 后端。日常开发建议开两个终端：
+
+| 终端 | 命令 | 说明 |
+|---|---|---|
+| A | `cd backend && npm start` | 启动 Mock API，默认 `http://127.0.0.1:3000` |
+| B | `npm start` | 启动快应用开发服务和 watch |
+
+`src/manifest.json` 的 `config.MEMENTO_API_BASE` 用来配置后端地址：
+
+- 电脑模拟器 / 本机预览：留空即可，前端会默认使用 `http://127.0.0.1:3000`；
+- 真机调试：填电脑在当前 Wi-Fi 下的 IP，例如 `http://192.168.1.23:3000`；
+- 接口不可用时，前端会自动回退到本地 Mock，保证风格、拍摄指引、上传占位、生成和预览流程能继续跑。
+
+主要 Mock API：
+
+| API | 说明 |
+|---|---|
+| `GET /api/health` | 首页健康检查 |
+| `GET /api/vlog-types` | Vlog 类型 |
+| `GET /api/style-templates` | 视觉风格模板 |
+| `POST /api/shot-plan` | 按类型生成拍摄指引 |
+| `GET /api/materials` | 获取 Mock 素材 |
+| `POST /api/materials/upload` | 快应用素材上传占位接口 |
+| `POST /api/generate/mock` | 生成 Mock Vlog 结果 |
+
 -  **更优雅的处理数据请求**；采用 `Promise` 对系统内置请求 `@system.fetch` 进行封装，并抛出至全局，使得可以极简的进行链式调用，并能够使用  `finally`；
 
 -  **内置样式处理方案**；「快应用」支持 `less`, `sass` 的预编译；这里采取 [dart sass](https://sass-lang.com/documentation) 方案，并内置了部分变量，以及常用混合方法，使得可以轻松开启样式编写、复用、修改等；

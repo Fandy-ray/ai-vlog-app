@@ -1,30 +1,245 @@
 <template>
-  <div class="wrapper">
-    <text class="title">{{ title }}</text>
+  <div class="page">
+    <text class="heading">选择 Vlog 类型</text>
+    <text class="hint">类型会影响拍摄指引、默认素材和生成脚本。</text>
+
+    <div class="section">
+      <block for="{{ (index, item) in types }}">
+        <div
+          class="option {{ selectedType === item.type ? 'option-active' : '' }}"
+          data-type="{{ item.type }}"
+          data-style="{{ item.defaultStyle }}"
+          onclick="selectType"
+        >
+          <div class="option-main">
+            <text class="option-title">{{ item.name }}</text>
+            <text class="option-desc">{{ item.description || item.desc }}</text>
+          </div>
+          <text class="option-mark">{{ selectedType === item.type ? '已选' : '选择' }}</text>
+        </div>
+      </block>
+    </div>
+
+    <text class="heading small">视觉风格</text>
+    <div class="template-list">
+      <block for="{{ (index, item) in styles }}">
+        <div
+          class="template {{ selectedStyle === item.id ? 'template-active' : '' }}"
+          data-style="{{ item.id }}"
+          onclick="selectStyle"
+        >
+          <text class="template-name">{{ item.name }}</text>
+          <text class="template-meta">{{ item.filterName }} / {{ item.bgmName }}</text>
+        </div>
+      </block>
+    </div>
+
+    <div class="actions">
+      <input class="btn primary" type="button" value="进入拍摄指引" onclick="goShoot" />
+      <input class="btn" type="button" value="返回首页" onclick="goHome" />
+    </div>
   </div>
 </template>
 
 <script>
+import router from '@system.router'
+import vlogApi from '../../helper/apis/vlog'
+import store from '../../helper/store'
+import $utils from '../../helper/utils'
+
 export default {
   private: {
-    title: '风格',
+    types: [],
+    styles: [],
+    selectedType: 'study',
+    selectedStyle: 'study'
   },
 
   onInit() {
     this.$page.setTitleBar({ text: '风格' })
+    this.selectedType = store.state.type || 'study'
+    this.selectedStyle = store.state.style || 'study'
+    this.loadOptions()
   },
+
+  loadOptions() {
+    vlogApi
+      .getVlogTypes()
+      .then(types => {
+        this.types = types || []
+        store.setState({ types: this.types })
+      })
+      .catch(() => {
+        $utils.showToast('类型加载失败')
+      })
+
+    vlogApi
+      .getStyleTemplates()
+      .then(styles => {
+        this.styles = styles || []
+        store.setState({ styles: this.styles })
+      })
+      .catch(() => {
+        $utils.showToast('风格加载失败')
+      })
+  },
+
+  selectType(event) {
+    const dataset = event.currentTarget.dataset
+    this.selectedType = dataset.type
+
+    if (dataset.style) {
+      this.selectedStyle = dataset.style
+    }
+
+    store.resetFlow()
+    store.setState({
+      type: this.selectedType,
+      style: this.selectedStyle
+    })
+  },
+
+  selectStyle(event) {
+    this.selectedStyle = event.currentTarget.dataset.style
+    store.resetFlow()
+    store.setState({
+      type: this.selectedType,
+      style: this.selectedStyle
+    })
+  },
+
+  goShoot() {
+    store.setState({
+      type: this.selectedType,
+      style: this.selectedStyle
+    })
+    router.push({ uri: '/pages/shoot' })
+  },
+
+  goHome() {
+    router.push({ uri: '/pages/home' })
+  }
 }
 </script>
 
 <style lang="less">
 @import './../../assets/styles/style.less';
 
-.wrapper {
-  .flex-box-mixins(column, center, center);
-  .title {
-    font-size: 8 * @size-factor;
-    text-align: center;
-    color: @black;
-  }
+.page {
+  flex-direction: column;
+  padding: 32px;
+  background-color: #f7f8f5;
+}
+
+.heading {
+  font-size: 38px;
+  font-weight: bold;
+  color: #12181f;
+  margin-bottom: 10px;
+}
+
+.small {
+  font-size: 32px;
+  margin-top: 10px;
+}
+
+.hint {
+  font-size: 24px;
+  color: #858b93;
+  margin-bottom: 22px;
+}
+
+.section {
+  flex-direction: column;
+}
+
+.option {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  padding: 24px;
+  margin-bottom: 18px;
+  border-radius: 10px;
+  background-color: #ffffff;
+  border-width: 2px;
+  border-color: #ffffff;
+}
+
+.option-active {
+  border-color: #2f6f58;
+  background-color: #eef5f1;
+}
+
+.option-main {
+  flex: 1;
+  flex-direction: column;
+}
+
+.option-title {
+  font-size: 30px;
+  color: #12181f;
+  margin-bottom: 8px;
+}
+
+.option-desc {
+  font-size: 23px;
+  color: #7c838b;
+}
+
+.option-mark {
+  width: 76px;
+  text-align: right;
+  font-size: 24px;
+  color: #2f6f58;
+}
+
+.template-list {
+  flex-direction: column;
+  margin-top: 8px;
+  margin-bottom: 28px;
+}
+
+.template {
+  flex-direction: column;
+  padding: 22px;
+  margin-bottom: 16px;
+  border-radius: 10px;
+  background-color: #ffffff;
+  border-width: 2px;
+  border-color: #ffffff;
+}
+
+.template-active {
+  border-color: #456b86;
+  background-color: #eef3f6;
+}
+
+.template-name {
+  font-size: 28px;
+  color: #12181f;
+  margin-bottom: 8px;
+}
+
+.template-meta {
+  font-size: 23px;
+  color: #7c838b;
+}
+
+.actions {
+  flex-direction: column;
+}
+
+.btn {
+  height: 70px;
+  margin-bottom: 18px;
+  border-radius: 10px;
+  background-color: #e9ebee;
+  color: #111111;
+  font-size: 29px;
+}
+
+.primary {
+  background-color: #2f6f58;
+  color: #ffffff;
 }
 </style>
