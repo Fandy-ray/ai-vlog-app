@@ -5,11 +5,15 @@
 
 const $utils = require('./helper/utils').default
 const $apis = require('./helper/apis').default
+const $api = require('./helper/api').default
+const $ai = require('./helper/ai').default
 
 /* @desc: 注入方法至全局 global,以便页面调用 */
 const hook2global = global.__proto__ || global
 hook2global.$utils = $utils
 hook2global.$apis = $apis
+hook2global.$api = $api
+hook2global.$ai = $ai
 
 export default {
   onCreate() {}
