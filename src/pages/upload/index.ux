@@ -1,30 +1,344 @@
 <template>
-  <div class="wrapper">
-    <text class="title">{{ title }}</text>
+  <div class="page">
+    <div class="top">
+      <text class="heading">上传素材</text>
+      <text class="hint">可以从相册选视频/图片；预览器不支持选文件时，直接使用 Mock 素材也能继续完整流程。</text>
+      <text class="status">{{ statusText }}</text>
+    </div>
+
+    <div class="tools">
+      <input class="btn primary" type="button" value="选择视频" onclick="pickVideo" />
+      <input class="btn" type="button" value="选择图片" onclick="pickImage" />
+      <input class="btn ghost" type="button" value="使用 Mock 素材" onclick="useMockMaterials" />
+    </div>
+
+    <div class="empty" if="{{ !materials.length }}">
+      <text class="empty-title">还没有素材</text>
+      <text class="empty-text">先选择视频/图片，或使用 Mock 素材进行联调。</text>
+    </div>
+
+    <div class="materials" if="{{ materials.length }}">
+      <block for="{{ (index, item) in materials }}">
+        <div class="material">
+          <div class="material-main">
+            <text class="material-name">{{ item.name }}</text>
+            <text class="material-meta">{{ item.category }} / {{ item.duration }}s / {{ item.status || 'done' }}</text>
+            <text class="material-uri">{{ item.uri }}</text>
+          </div>
+          <text class="remove" data-index="{{ index }}" onclick="removeMaterial">删除</text>
+        </div>
+      </block>
+    </div>
+
+    <div class="actions">
+      <input class="btn primary" type="button" value="生成 Vlog" onclick="goGenerate" />
+      <input class="btn" type="button" value="返回拍摄指引" onclick="goShoot" />
+    </div>
   </div>
 </template>
 
 <script>
+import media from '@system.media'
+import router from '@system.router'
+import vlogApi from '../../helper/apis/vlog'
+import store from '../../helper/store'
+import $utils from '../../helper/utils'
+
+function filenameFromUri(uri = '', index = 0, ext = 'mp4') {
+  const filename = uri.split('/').reverse()[0]
+  return filename || `素材${index + 1}.${ext}`
+}
+
 export default {
   private: {
-    title: '上传',
+    statusText: '等待选择素材',
+    materials: []
   },
 
   onInit() {
     this.$page.setTitleBar({ text: '上传' })
+    this.materials = store.state.materials || []
+    this.updateStatus()
   },
+
+  onShow() {
+    this.materials = store.state.materials || []
+    this.updateStatus()
+  },
+
+  updateStatus() {
+    this.statusText = this.materials.length
+      ? `已准备 ${this.materials.length} 个素材`
+      : '等待选择素材'
+  },
+
+  syncStore() {
+    store.setState({ materials: this.materials })
+    this.updateStatus()
+  },
+
+  pickVideo() {
+    this.pickMedia('video')
+  },
+
+  pickImage() {
+    this.pickMedia('image')
+  },
+
+  pickMedia(kind) {
+    const success = res => {
+      const uris = res.uris || (res.uri ? [res.uri] : [])
+      this.handlePicked(uris, kind)
+    }
+    const fail = () => {
+      this.statusText = '当前环境不能打开相册，可使用 Mock 素材继续联调'
+      $utils.showToast('选取素材失败')
+    }
+
+    try {
+      if (kind === 'video') {
+        if (media.pickVideos) {
+          media.pickVideos({ success, fail })
+        } else {
+          media.pickVideo({ success, fail })
+        }
+      } else if (media.pickImages) {
+        media.pickImages({ success, fail })
+      } else {
+        media.pickImage({ success, fail })
+      }
+    } catch (error) {
+      fail(error)
+    }
+  },
+
+  handlePicked(uris = [], kind) {
+    if (!uris.length) {
+      return
+    }
+
+    this.statusText = '素材上传中...'
+
+    let queue = Promise.resolve()
+
+    uris.forEach((uri, index) => {
+      const file = {
+        uri,
+        filename: filenameFromUri(uri, index, kind === 'video' ? 'mp4' : 'jpg')
+      }
+      const pending = {
+        id: `pending-${Date.now()}-${index}`,
+        type: store.state.type,
+        category: kind,
+        name: file.filename,
+        duration: kind === 'video' ? 5 : 3,
+        tags: ['upload', kind],
+        sortWeight: 50 + this.materials.length + index,
+        uri,
+        status: 'uploading'
+      }
+      const targetIndex = this.materials.length
+
+      this.materials = this.materials.concat([pending])
+
+      queue = queue.then(() => {
+        return vlogApi
+          .uploadMaterial(file, {
+            type: store.state.type,
+            category: kind,
+            index: targetIndex
+          })
+          .then(material => {
+            const list = this.materials.slice()
+            list.splice(targetIndex, 1, {
+              ...material,
+              status: material.uri && material.uri.indexOf('mock://') === 0 ? 'mocked' : 'done'
+            })
+            this.materials = list
+            this.syncStore()
+          })
+      })
+    })
+
+    queue
+      .then(() => {
+        this.statusText = `已准备 ${this.materials.length} 个素材`
+      })
+      .catch(() => {
+        this.statusText = '部分素材上传失败，已保留本地占位'
+        this.syncStore()
+      })
+  },
+
+  useMockMaterials() {
+    this.statusText = '正在读取 Mock 素材...'
+
+    vlogApi
+      .getMaterials({
+        type: store.state.type || 'study',
+        style: store.state.style || 'study',
+        limit: 4
+      })
+      .then(materials => {
+        this.materials = (materials || []).map(item => ({
+          ...item,
+          status: 'mocked'
+        }))
+        this.syncStore()
+      })
+      .catch(() => {
+        $utils.showToast('Mock 素材加载失败')
+      })
+  },
+
+  removeMaterial(event) {
+    const index = Number(event.currentTarget.dataset.index)
+    const list = this.materials.slice()
+    list.splice(index, 1)
+    this.materials = list
+    this.syncStore()
+  },
+
+  goGenerate() {
+    if (!this.materials.length) {
+      $utils.showToast('请先上传或选择 Mock 素材')
+      return
+    }
+
+    this.syncStore()
+    router.push({ uri: '/pages/generate' })
+  },
+
+  goShoot() {
+    router.push({ uri: '/pages/shoot' })
+  }
 }
 </script>
 
 <style lang="less">
 @import './../../assets/styles/style.less';
 
-.wrapper {
-  .flex-box-mixins(column, center, center);
-  .title {
-    font-size: 8 * @size-factor;
-    text-align: center;
-    color: @black;
-  }
+.page {
+  flex-direction: column;
+  padding: 32px;
+  background-color: #f7f8f5;
+}
+
+.top {
+  flex-direction: column;
+  margin-bottom: 22px;
+}
+
+.heading {
+  font-size: 38px;
+  font-weight: bold;
+  color: #12181f;
+  margin-bottom: 10px;
+}
+
+.hint {
+  font-size: 24px;
+  line-height: 36px;
+  color: #7c838b;
+  margin-bottom: 14px;
+}
+
+.status {
+  font-size: 24px;
+  color: #2f6f58;
+}
+
+.tools {
+  flex-direction: column;
+  margin-bottom: 22px;
+}
+
+.btn {
+  height: 70px;
+  margin-bottom: 16px;
+  border-radius: 10px;
+  background-color: #e9ebee;
+  color: #111111;
+  font-size: 29px;
+}
+
+.primary {
+  background-color: #2f6f58;
+  color: #ffffff;
+}
+
+.ghost {
+  background-color: #ffffff;
+  color: #2f6f58;
+}
+
+.empty {
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  min-height: 220px;
+  padding: 28px;
+  border-radius: 10px;
+  background-color: #ffffff;
+  margin-bottom: 22px;
+}
+
+.empty-title {
+  font-size: 30px;
+  color: #12181f;
+  margin-bottom: 10px;
+}
+
+.empty-text {
+  font-size: 24px;
+  color: #8a9098;
+  text-align: center;
+}
+
+.materials {
+  flex-direction: column;
+  margin-bottom: 22px;
+}
+
+.material {
+  flex-direction: row;
+  align-items: center;
+  padding: 22px;
+  margin-bottom: 16px;
+  border-radius: 10px;
+  background-color: #ffffff;
+}
+
+.material-main {
+  flex: 1;
+  flex-direction: column;
+}
+
+.material-name {
+  font-size: 28px;
+  color: #12181f;
+  margin-bottom: 8px;
+}
+
+.material-meta {
+  font-size: 22px;
+  color: #456b86;
+  margin-bottom: 6px;
+}
+
+.material-uri {
+  font-size: 20px;
+  color: #9aa0a8;
+}
+
+.remove {
+  width: 76px;
+  text-align: right;
+  font-size: 24px;
+  color: #b55b4f;
+}
+
+.actions {
+  flex-direction: column;
 }
 </style>

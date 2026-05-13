@@ -3,9 +3,7 @@ const router = express.Router()
 const { generateMockVlog } = require('../services/mockService')
 
 router.post('/generate/mock', (req, res) => {
-  const { type = 'study' } = req.body || {}
-
-  const result = generateMockVlog(type)
+  const result = generateMockVlog(req.body || {})
 
   res.json({
     code: 0,

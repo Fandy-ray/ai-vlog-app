@@ -17,6 +17,12 @@
     },
     {
       "name": "system.fetch"
+    },
+    {
+      "name": "system.media"
+    },
+    {
+      "name": "system.request"
     }
   ],
   "permissions": [
@@ -26,10 +32,11 @@
   ],
   "template/official": "demo-template",
   "config": {
-    "logLevel": "debug"
+    "logLevel": "debug",
+    "MEMENTO_API_BASE": ""
   },
   "router": {
-    "entry": "pages/Demo",
+    "entry": "pages/home",
     "pages": {
       "pages/Demo": {
         "component": "index"
