@@ -88,9 +88,11 @@
         "titleBarText": "详情页"
       },
       "pages/home": {
+        "titleBar": false,
         "titleBarText": "首页"
       },
       "pages/style": {
+        "titleBar": false,
         "titleBarText": "风格"
       },
       "pages/shoot": {
@@ -103,6 +105,7 @@
         "titleBarText": "生成"
       },
       "pages/preview": {
+        "titleBar": false,
         "titleBarText": "预览"
       }
     }

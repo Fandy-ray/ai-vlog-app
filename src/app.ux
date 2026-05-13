@@ -1,6 +1,7 @@
 <script>
 /**
- * 应用级别的配置，供所有页面公用
+ * 应用级别配置：全局工具、Mock 接口、命名路由跳转。
+ * 页面注册与入口在 manifest.json 的 router.pages / router.entry。
  */
 
 const $utils = require('./helper/utils').default
@@ -8,14 +9,15 @@ const $apis = require('./helper/apis').default
 const $api = require('./helper/api').default
 const $ai = require('./helper/ai').default
 const $store = require('./helper/store').default
+const $routes = require('./helper/routes').default
 
-/* @desc: 注入方法至全局 global,以便页面调用 */
 const hook2global = global.__proto__ || global
 hook2global.$utils = $utils
 hook2global.$apis = $apis
 hook2global.$api = $api
 hook2global.$ai = $ai
 hook2global.$store = $store
+hook2global.$routes = $routes
 
 export default {
   onCreate() {}

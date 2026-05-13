@@ -1,0 +1,106 @@
+<template>
+  <div
+    class="c-style-card {{ active ? activeSurfaceClass : '' }}"
+    onclick="handleTap"
+  >
+    <div class="c-style-card-main">
+      <text class="c-style-card-title">{{ title }}</text>
+      <text class="c-style-card-meta">{{ meta }}</text>
+    </div>
+    <text class="c-style-card-mark">{{ active ? '已选' : '选择' }}</text>
+  </div>
+</template>
+
+<script>
+export default {
+  props: {
+    title: {
+      type: String,
+      default: ''
+    },
+    meta: {
+      type: String,
+      default: ''
+    },
+    active: {
+      type: Boolean,
+      default: false
+    },
+    itemKey: {
+      type: String,
+      default: ''
+    },
+    tone: {
+      type: String,
+      default: 'neutral'
+    }
+  },
+
+  private: {
+    activeSurfaceClass: 'c-style-card-sel-neutral'
+  },
+
+  onInit() {
+    this.refreshActiveSurface()
+  },
+
+  refreshActiveSurface() {
+    const surface =
+      this.tone === 'primary' ? 'c-style-card-sel-primary' : 'c-style-card-sel-neutral'
+    this.activeSurfaceClass = surface
+  },
+
+  handleTap() {
+    this.$emit('click', { key: this.itemKey })
+  }
+}
+</script>
+
+<style lang="less">
+@import '../../assets/styles/variables.less';
+
+.c-style-card {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  padding: 24px;
+  margin-bottom: 16px;
+  border-radius: @radius-md;
+  background-color: @surface;
+  border-width: 2px;
+  border-color: @surface;
+}
+
+.c-style-card-sel-neutral {
+  border-color: @brand-secondary;
+  background-color: #eef3f6;
+}
+
+.c-style-card-sel-primary {
+  border-color: @brand-primary;
+  background-color: #eef5f1;
+}
+
+.c-style-card-main {
+  flex: 1;
+  flex-direction: column;
+}
+
+.c-style-card-title {
+  font-size: 28px;
+  color: @text-primary;
+  margin-bottom: 8px;
+}
+
+.c-style-card-meta {
+  font-size: 23px;
+  color: @text-secondary;
+}
+
+.c-style-card-mark {
+  width: 76px;
+  text-align: right;
+  font-size: 24px;
+  color: @brand-primary;
+}
+</style>

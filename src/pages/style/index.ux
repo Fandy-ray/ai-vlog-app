@@ -1,54 +1,66 @@
+<import name="c-navbar" src="../../components/Navbar/index.ux"></import>
+<import name="c-button" src="../../components/Button/index.ux"></import>
+<import name="c-card" src="../../components/Card/index.ux"></import>
+<import name="c-style-card" src="../../components/StyleCard/index.ux"></import>
+
 <template>
-  <div class="page">
-    <text class="heading">选择 Vlog 类型</text>
-    <text class="hint">类型会影响拍摄指引、默认素材和生成脚本。</text>
+  <div class="page-shell">
+    <c-navbar
+      title="风格与类型"
+      show-back="{{ navShowBack }}"
+      safe-top="{{ safeTop }}"
+      onback="onNavBack"
+    ></c-navbar>
 
-    <div class="section">
-      <block for="{{ (index, item) in types }}">
-        <div
-          class="option {{ selectedType === item.type ? 'option-active' : '' }}"
-          data-type="{{ item.type }}"
-          data-style="{{ item.defaultStyle }}"
-          onclick="selectType"
-        >
-          <div class="option-main">
-            <text class="option-title">{{ item.name }}</text>
-            <text class="option-desc">{{ item.description || item.desc }}</text>
-          </div>
-          <text class="option-mark">{{ selectedType === item.type ? '已选' : '选择' }}</text>
-        </div>
-      </block>
-    </div>
+    <div class="page-body">
+      <text class="page-section-title">选择 Vlog 类型</text>
+      <text class="page-hint">类型会影响拍摄指引、默认素材和生成脚本。</text>
 
-    <text class="heading small">视觉风格</text>
-    <div class="template-list">
-      <block for="{{ (index, item) in styles }}">
-        <div
-          class="template {{ selectedStyle === item.id ? 'template-active' : '' }}"
-          data-style="{{ item.id }}"
-          onclick="selectStyle"
-        >
-          <text class="template-name">{{ item.name }}</text>
-          <text class="template-meta">{{ item.filterName }} / {{ item.bgmName }}</text>
-        </div>
-      </block>
-    </div>
+      <c-card>
+        <block for="{{ (index, item) in types }}">
+          <c-style-card
+            title="{{ item.name }}"
+            meta="{{ item.description || item.desc }}"
+            active="{{ selectedType === item.type }}"
+            item-key="{{ item.type }}"
+            tone="primary"
+            onclick="onTypeCard"
+          ></c-style-card>
+        </block>
+      </c-card>
 
-    <div class="actions">
-      <input class="btn primary" type="button" value="进入拍摄指引" onclick="goShoot" />
-      <input class="btn" type="button" value="返回首页" onclick="goHome" />
+      <text class="page-section-title">视觉风格</text>
+      <c-card>
+        <block for="{{ (index, item) in styles }}">
+          <c-style-card
+            title="{{ item.name }}"
+            meta="{{ item.filterName }} / {{ item.bgmName }}"
+            active="{{ selectedStyle === item.id }}"
+            item-key="{{ item.id }}"
+            tone="neutral"
+            onclick="onStyleCard"
+          ></c-style-card>
+        </block>
+      </c-card>
+
+      <div class="page-actions">
+        <c-button text="进入拍摄指引" variant="primary" onclick="goShoot"></c-button>
+        <c-button text="返回首页" variant="default" onclick="goHome"></c-button>
+      </div>
     </div>
   </div>
 </template>
 
 <script>
-import router from '@system.router'
+import $routes from '../../helper/routes'
 import vlogApi from '../../helper/apis/vlog'
 import store from '../../helper/store'
 import $utils from '../../helper/utils'
 
 export default {
   private: {
+    safeTop: 0,
+    navShowBack: true,
     types: [],
     styles: [],
     selectedType: 'study',
@@ -56,7 +68,8 @@ export default {
   },
 
   onInit() {
-    this.$page.setTitleBar({ text: '风格' })
+    const h = this.$page.statusBarHeight
+    this.safeTop = typeof h === 'number' ? h : 0
     this.selectedType = store.state.type || 'study'
     this.selectedStyle = store.state.style || 'study'
     this.loadOptions()
@@ -84,12 +97,14 @@ export default {
       })
   },
 
-  selectType(event) {
-    const dataset = event.currentTarget.dataset
-    this.selectedType = dataset.type
+  onTypeCard(evt) {
+    const type = evt.detail && evt.detail.key
+    const row = (this.types || []).find(item => item.type === type)
 
-    if (dataset.style) {
-      this.selectedStyle = dataset.style
+    this.selectedType = type
+
+    if (row && row.defaultStyle) {
+      this.selectedStyle = row.defaultStyle
     }
 
     store.resetFlow()
@@ -99,8 +114,8 @@ export default {
     })
   },
 
-  selectStyle(event) {
-    this.selectedStyle = event.currentTarget.dataset.style
+  onStyleCard(evt) {
+    this.selectedStyle = evt.detail && evt.detail.key
     store.resetFlow()
     store.setState({
       type: this.selectedType,
@@ -113,133 +128,19 @@ export default {
       type: this.selectedType,
       style: this.selectedStyle
     })
-    router.push({ uri: '/pages/shoot' })
+    $routes.push('shoot')
   },
 
   goHome() {
-    router.push({ uri: '/pages/home' })
+    $routes.push('home')
+  },
+
+  onNavBack() {
+    $routes.back()
   }
 }
 </script>
 
 <style lang="less">
 @import './../../assets/styles/style.less';
-
-.page {
-  flex-direction: column;
-  padding: 32px;
-  background-color: #f7f8f5;
-}
-
-.heading {
-  font-size: 38px;
-  font-weight: bold;
-  color: #12181f;
-  margin-bottom: 10px;
-}
-
-.small {
-  font-size: 32px;
-  margin-top: 10px;
-}
-
-.hint {
-  font-size: 24px;
-  color: #858b93;
-  margin-bottom: 22px;
-}
-
-.section {
-  flex-direction: column;
-}
-
-.option {
-  flex-direction: row;
-  align-items: center;
-  justify-content: space-between;
-  padding: 24px;
-  margin-bottom: 18px;
-  border-radius: 10px;
-  background-color: #ffffff;
-  border-width: 2px;
-  border-color: #ffffff;
-}
-
-.option-active {
-  border-color: #2f6f58;
-  background-color: #eef5f1;
-}
-
-.option-main {
-  flex: 1;
-  flex-direction: column;
-}
-
-.option-title {
-  font-size: 30px;
-  color: #12181f;
-  margin-bottom: 8px;
-}
-
-.option-desc {
-  font-size: 23px;
-  color: #7c838b;
-}
-
-.option-mark {
-  width: 76px;
-  text-align: right;
-  font-size: 24px;
-  color: #2f6f58;
-}
-
-.template-list {
-  flex-direction: column;
-  margin-top: 8px;
-  margin-bottom: 28px;
-}
-
-.template {
-  flex-direction: column;
-  padding: 22px;
-  margin-bottom: 16px;
-  border-radius: 10px;
-  background-color: #ffffff;
-  border-width: 2px;
-  border-color: #ffffff;
-}
-
-.template-active {
-  border-color: #456b86;
-  background-color: #eef3f6;
-}
-
-.template-name {
-  font-size: 28px;
-  color: #12181f;
-  margin-bottom: 8px;
-}
-
-.template-meta {
-  font-size: 23px;
-  color: #7c838b;
-}
-
-.actions {
-  flex-direction: column;
-}
-
-.btn {
-  height: 70px;
-  margin-bottom: 18px;
-  border-radius: 10px;
-  background-color: #e9ebee;
-  color: #111111;
-  font-size: 29px;
-}
-
-.primary {
-  background-color: #2f6f58;
-  color: #ffffff;
-}
 </style>

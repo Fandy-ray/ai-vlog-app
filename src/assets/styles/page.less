@@ -1,0 +1,33 @@
+@import './variables.less';
+
+/* 页面根容器：配合自定义 Navbar + titleBar:false 使用 */
+.page-shell {
+  flex-direction: column;
+  width: 100%;
+  flex: 1;
+  background-color: @page-bg;
+}
+
+.page-body {
+  flex-direction: column;
+  flex: 1;
+  padding: @page-padding;
+}
+
+.page-section-title {
+  font-size: 32px;
+  font-weight: bold;
+  color: @text-primary;
+  margin-bottom: 12px;
+}
+
+.page-hint {
+  font-size: 24px;
+  color: @text-muted;
+  margin-bottom: 20px;
+}
+
+.page-actions {
+  flex-direction: column;
+  margin-top: 8px;
+}

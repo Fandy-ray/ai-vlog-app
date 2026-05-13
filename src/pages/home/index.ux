@@ -1,44 +1,59 @@
+<import name="c-navbar" src="../../components/Navbar/index.ux"></import>
+<import name="c-button" src="../../components/Button/index.ux"></import>
+<import name="c-card" src="../../components/Card/index.ux"></import>
+
 <template>
-  <div class="page">
-    <div class="hero">
-      <text class="title">AI Vlog</text>
-      <text class="subtitle">根据后端 Mock 接口串联流程：风格 -> 拍摄指引 -> 上传 -> 生成 -> 预览</text>
-      <text class="api">接口基址：{{ apiBase }}</text>
-    </div>
+  <div class="page-shell">
+    <c-navbar
+      title="AI Vlog"
+      show-back="{{ navShowBack }}"
+      safe-top="{{ safeTop }}"
+    ></c-navbar>
 
-    <div class="status {{ healthOk ? 'status-ok' : 'status-warn' }}">
-      <text class="status-dot">{{ healthOk ? '●' : '○' }}</text>
-      <text class="status-text">{{ healthText }}</text>
-    </div>
+    <div class="page-body">
+      <c-card
+        title="说明"
+        subtitle="根据后端 Mock 串联：风格 → 拍摄指引 → 上传 → 生成 → 预览"
+      >
+        <text class="api-line">接口基址：{{ apiBase }}</text>
+      </c-card>
 
-    <div class="summary">
-      <div class="summary-item">
-        <text class="summary-label">当前类型</text>
-        <text class="summary-value">{{ selectedTypeName }}</text>
-      </div>
-      <div class="summary-item">
-        <text class="summary-label">视觉风格</text>
-        <text class="summary-value">{{ selectedStyleName }}</text>
-      </div>
-      <div class="summary-item">
-        <text class="summary-label">素材数量</text>
-        <text class="summary-value">{{ materialCount }} 个</text>
-      </div>
-    </div>
+      <c-card title="服务状态">
+        <div class="status {{ healthOk ? 'status-ok' : 'status-warn' }}">
+          <text class="status-dot">{{ healthOk ? '●' : '○' }}</text>
+          <text class="status-text">{{ healthText }}</text>
+        </div>
+      </c-card>
 
-    <div class="actions">
-      <input class="btn primary" type="button" value="选择风格" onclick="goStyle" />
-      <input class="btn" type="button" value="{{ shootButtonText }}" onclick="goShoot" />
-      <input class="btn" type="button" value="上传素材" onclick="goUpload" />
-      <input class="btn" type="button" value="生成 Vlog" onclick="goGenerate" />
-      <input class="btn" type="button" value="预览结果" onclick="goPreview" />
-      <input class="btn ghost" type="button" value="重新健康检查" onclick="checkHealth" />
+      <c-card title="当前进度">
+        <div class="summary-row">
+          <text class="summary-label">当前类型</text>
+          <text class="summary-value">{{ selectedTypeName }}</text>
+        </div>
+        <div class="summary-row">
+          <text class="summary-label">视觉风格</text>
+          <text class="summary-value">{{ selectedStyleName }}</text>
+        </div>
+        <div class="summary-row summary-row-last">
+          <text class="summary-label">素材数量</text>
+          <text class="summary-value">{{ materialCount }} 个</text>
+        </div>
+      </c-card>
+
+      <div class="page-actions">
+        <c-button text="选择风格" variant="primary" onclick="goStyle"></c-button>
+        <c-button text="{{ shootButtonText }}" variant="default" onclick="goShoot"></c-button>
+        <c-button text="上传素材" variant="default" onclick="goUpload"></c-button>
+        <c-button text="生成 Vlog" variant="default" onclick="goGenerate"></c-button>
+        <c-button text="预览结果" variant="default" onclick="goPreview"></c-button>
+        <c-button text="重新健康检查" variant="ghost" onclick="checkHealth"></c-button>
+      </div>
     </div>
   </div>
 </template>
 
 <script>
-import router from '@system.router'
+import $routes from '../../helper/routes'
 import vlogApi from '../../helper/apis/vlog'
 import store from '../../helper/store'
 import $utils from '../../helper/utils'
@@ -50,6 +65,8 @@ function findName(list = [], key, value, fallback) {
 
 export default {
   private: {
+    safeTop: 0,
+    navShowBack: false,
     apiBase: '',
     healthOk: false,
     healthText: '正在检查后端...',
@@ -60,7 +77,8 @@ export default {
   },
 
   onInit() {
-    this.$page.setTitleBar({ text: '首页' })
+    const h = this.$page.statusBarHeight
+    this.safeTop = typeof h === 'number' ? h : 0
     this.apiBase = vlogApi.getApiBase()
     this.syncState()
     this.checkHealth()
@@ -95,7 +113,7 @@ export default {
   },
 
   goStyle() {
-    router.push({ uri: '/pages/style' })
+    $routes.push('style')
   },
 
   goShoot() {
@@ -104,15 +122,15 @@ export default {
       return
     }
 
-    router.push({ uri: '/pages/shoot' })
+    $routes.push('shoot')
   },
 
   goUpload() {
-    router.push({ uri: '/pages/upload' })
+    $routes.push('upload')
   },
 
   goGenerate() {
-    router.push({ uri: '/pages/generate' })
+    $routes.push('generate')
   },
 
   goPreview() {
@@ -121,7 +139,7 @@ export default {
       return
     }
 
-    router.push({ uri: '/pages/preview' })
+    $routes.push('preview')
   }
 }
 </script>
@@ -129,59 +147,40 @@ export default {
 <style lang="less">
 @import './../../assets/styles/style.less';
 
-.page {
-  flex-direction: column;
-  padding: 36px;
-  background-color: #f7f8f5;
-}
-
-.hero {
-  flex-direction: column;
-  margin-bottom: 28px;
-}
-
-.title {
-  font-size: 54px;
-  font-weight: bold;
-  color: #111111;
-  margin-bottom: 18px;
-}
-
-.subtitle {
-  font-size: 30px;
-  line-height: 44px;
-  color: #7c818a;
-  margin-bottom: 14px;
-}
-
-.api {
+.api-line {
   font-size: 24px;
-  color: #8c9199;
+  color: @text-muted;
 }
 
 .status {
   flex-direction: row;
   align-items: center;
-  padding: 24px;
-  border-radius: 10px;
-  margin-bottom: 24px;
-  background-color: #ffffff;
+  padding: 16px 16px 16px 12px;
+  border-radius: @radius-sm;
+  background-color: #f3f5f4;
 }
 
 .status-ok {
   border-left-width: 8px;
-  border-left-color: #4b8f6f;
+  border-left-color: @brand-ok;
 }
 
 .status-warn {
   border-left-width: 8px;
-  border-left-color: #d38b3f;
+  border-left-color: @brand-warn;
+}
+
+.status-ok .status-dot {
+  color: @brand-ok;
+}
+
+.status-warn .status-dot {
+  color: @brand-warn;
 }
 
 .status-dot {
   width: 42px;
   font-size: 28px;
-  color: #4b8f6f;
 }
 
 .status-text {
@@ -190,52 +189,25 @@ export default {
   color: #20242a;
 }
 
-.summary {
-  flex-direction: column;
-  background-color: #ffffff;
-  border-radius: 10px;
-  padding: 8px 24px;
-  margin-bottom: 28px;
-}
-
-.summary-item {
+.summary-row {
   flex-direction: row;
   justify-content: space-between;
   padding: 18px 0;
   border-bottom-width: 1px;
-  border-bottom-color: #eceef0;
+  border-bottom-color: @border-subtle;
+}
+
+.summary-row-last {
+  border-bottom-width: 0;
 }
 
 .summary-label {
   font-size: 26px;
-  color: #8b9097;
+  color: @text-muted;
 }
 
 .summary-value {
   font-size: 28px;
   color: #1f2a32;
-}
-
-.actions {
-  flex-direction: column;
-}
-
-.btn {
-  height: 72px;
-  margin-bottom: 20px;
-  border-radius: 10px;
-  background-color: #e9ebee;
-  color: #111111;
-  font-size: 30px;
-}
-
-.primary {
-  background-color: #2f6f58;
-  color: #ffffff;
-}
-
-.ghost {
-  background-color: #ffffff;
-  color: #2f6f58;
 }
 </style>

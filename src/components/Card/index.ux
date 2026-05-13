@@ -1,0 +1,61 @@
+<template>
+  <div class="c-card">
+    <div class="c-card-head" if="{{ title }}">
+      <text class="c-card-title">{{ title }}</text>
+      <text class="c-card-sub" if="{{ subtitle }}">{{ subtitle }}</text>
+    </div>
+    <div class="c-card-body">
+      <slot name="default"></slot>
+    </div>
+  </div>
+</template>
+
+<script>
+export default {
+  props: {
+    title: {
+      type: String,
+      default: ''
+    },
+    subtitle: {
+      type: String,
+      default: ''
+    }
+  }
+}
+</script>
+
+<style lang="less">
+@import '../../assets/styles/variables.less';
+
+.c-card {
+  flex-direction: column;
+  background-color: @surface;
+  border-radius: @radius-md;
+  margin-bottom: 20px;
+  border-width: 1px;
+  border-color: #f0f1f3;
+}
+
+.c-card-head {
+  flex-direction: column;
+  padding: 20px 24px 8px 24px;
+}
+
+.c-card-title {
+  font-size: 30px;
+  font-weight: bold;
+  color: @text-primary;
+  margin-bottom: 6px;
+}
+
+.c-card-sub {
+  font-size: 24px;
+  color: @text-muted;
+}
+
+.c-card-body {
+  flex-direction: column;
+  padding: 8px 24px 20px 24px;
+}
+</style>
