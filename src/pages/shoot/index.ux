@@ -1,72 +1,107 @@
+<import name="c-loading" src="../../components/Loading/index.ux"></import>
+<import name="c-prompt-guide" src="../../components/PromptGuide/index.ux"></import>
+<import name="c-composition-overlay" src="../../components/CompositionOverlay/index.ux"></import>
+<import name="c-storyboard-steps" src="../../components/StoryboardSteps/index.ux"></import>
+<import name="c-card-swipe" src="../../components/CardSwipe/index.ux"></import>
+<import name="c-button" src="../../components/Button/index.ux"></import>
+
 <template>
-  <div class="page">
-    <div class="topbar">
-      <div class="top-main">
-        <text class="heading">拍摄指引</text>
-        <text class="hint">{{ description }}</text>
+  <div class="page-shell shoot-page {{ pageAnimClass }}">
+    <div class="shoot-topbar">
+      <div class="shoot-top-main">
+        <text class="shoot-heading">AI 导拍</text>
+        <text class="shoot-hint">{{ description }}</text>
       </div>
-      <text class="badge">{{ selectedName }}</text>
+      <text class="shoot-badge">{{ selectedName }}</text>
     </div>
 
-    <div class="loading" if="{{ loading }}">
-      <text class="loading-text">正在生成镜头计划...</text>
-    </div>
+    <c-loading if="{{ loading }}" mode="page" text="正在生成镜头计划..."></c-loading>
 
-    <div class="guide" if="{{ !loading }}">
-      <block for="{{ (index, item) in guide }}">
-        <div class="guide-item">
-          <text class="guide-index">{{ index + 1 }}</text>
-          <text class="guide-text">{{ item }}</text>
-        </div>
-      </block>
-    </div>
+    <block if="{{ !loading }}">
+      <c-prompt-guide items="{{ promptItems }}" onchange="onPromptChange"></c-prompt-guide>
 
-    <text class="subheading" if="{{ !loading }}">镜头拆解</text>
-    <div class="shots" if="{{ !loading }}">
-      <block for="{{ (index, shot) in shots }}">
-        <div class="shot">
-          <div class="shot-head">
-            <text class="shot-title">{{ shot.title }}</text>
-            <text class="shot-duration">{{ shot.duration }}s</text>
+      <text class="shoot-section-title">拍摄预览</text>
+      <div class="shoot-preview-wrap">
+        <c-composition-overlay mode="{{ overlayMode }}" visible="{{ true }}" opacity="{{ 0.38 }}">
+          <div class="shoot-preview" slot="default">
+            <text class="shoot-preview-label">取景参考</text>
+            <text class="shoot-preview-shot">{{ activeShotTitle }}</text>
+            <text class="shoot-preview-meta">{{ activeShotMeta }}</text>
           </div>
-          <text class="shot-meta">{{ shot.view }} / {{ shot.cameraMove }}</text>
-          <text class="shot-scene">{{ shot.scene }}</text>
-          <text class="shot-tips">{{ shot.tips }}</text>
-        </div>
-      </block>
-    </div>
+        </c-composition-overlay>
+      </div>
 
-    <div class="actions">
-      <input class="btn primary" type="button" value="去上传素材" onclick="goUpload" />
-      <input class="btn" type="button" value="重新生成指引" onclick="loadShotPlan" />
-    </div>
+      <div class="shoot-modes">
+        <text
+          class="shoot-mode {{ overlayMode === 'grid' ? 'shoot-mode-on' : '' }}"
+          data-mode="grid"
+          onclick="onModeChange"
+        >九宫格</text>
+        <text
+          class="shoot-mode {{ overlayMode === 'center' ? 'shoot-mode-on' : '' }}"
+          data-mode="center"
+          onclick="onModeChange"
+        >中心线</text>
+        <text
+          class="shoot-mode {{ overlayMode === 'golden' ? 'shoot-mode-on' : '' }}"
+          data-mode="golden"
+          onclick="onModeChange"
+        >黄金分割</text>
+      </div>
+
+      <c-card-swipe
+        title="镜头卡片"
+        items="{{ swipeItems }}"
+        onchange="onSwipeChange"
+      ></c-card-swipe>
+
+      <c-storyboard-steps steps="{{ storySteps }}" onstepclick="onStepClick"></c-storyboard-steps>
+
+      <div class="shoot-actions">
+        <c-button text="去上传素材" variant="primary" onclick="goUpload"></c-button>
+        <c-button text="重新生成指引" variant="ghost" onclick="loadShotPlan"></c-button>
+      </div>
+    </block>
   </div>
 </template>
 
 <script>
-import router from '@system.router'
+import anim from '../../assets/js/animations'
+import $routes from '../../helper/routes'
 import vlogApi from '../../helper/apis/vlog'
 import store from '../../helper/store'
 import $utils from '../../helper/utils'
 
 function findTypeName(type) {
-  const target = store.state.types.find(item => item.type === type)
+  const target = (store.state.types || []).find(item => item.type === type)
   return target ? target.name : '学习 vlog'
 }
 
 export default {
   private: {
+    pageAnimClass: '',
     loading: false,
     selectedName: '学习 vlog',
     description: '',
-    guide: [],
-    shots: []
+    shots: [],
+    promptItems: [],
+    storySteps: [],
+    swipeItems: [],
+    activeStepIndex: 0,
+    activeShotTitle: '准备拍摄',
+    activeShotMeta: '',
+    overlayMode: 'grid'
   },
 
   onInit() {
-    this.$page.setTitleBar({ text: '拍摄' })
+    this.$page.setTitleBar({ text: 'AI 导拍' })
     this.selectedName = findTypeName(store.state.type)
+    anim.triggerPageEnter(this)
     this.loadShotPlan()
+  },
+
+  onShow() {
+    anim.triggerPageEnter(this)
   },
 
   loadShotPlan() {
@@ -77,9 +112,13 @@ export default {
     vlogApi
       .getAiShotPlan({ type, style })
       .then(plan => {
-        this.description = plan.description
-        this.guide = plan.guide || []
+        this.description = plan.description || ''
         this.shots = plan.shots || []
+        this.promptItems = anim.buildPromptList(this.shots)
+        this.storySteps = anim.buildStorySteps(this.shots)
+        this.swipeItems = this.buildSwipeItems(this.shots)
+        this.activeStepIndex = 0
+        this.syncActiveShot()
         store.setState({ shotPlan: plan })
       })
       .catch(() => {
@@ -90,8 +129,54 @@ export default {
       })
   },
 
+  buildSwipeItems(shots = []) {
+    return shots.map(shot => ({
+      title: shot.title,
+      meta: `${shot.view || ''} / ${shot.duration || 0}s`,
+      desc: shot.tips || shot.scene || ''
+    }))
+  },
+
+  syncActiveShot() {
+    const shot = this.shots[this.activeStepIndex]
+
+    if (!shot) {
+      this.activeShotTitle = '准备拍摄'
+      this.activeShotMeta = ''
+      return
+    }
+
+    this.activeShotTitle = shot.title
+    this.activeShotMeta = `${shot.view} / ${shot.cameraMove}`
+  },
+
+  onPromptChange(evt) {
+    const index = evt.detail ? evt.detail.index : 0
+    this.activeStepIndex = index
+    this.storySteps = anim.setActiveStep(this.storySteps, index)
+    this.syncActiveShot()
+  },
+
+  onStepClick(evt) {
+    const index = evt.detail ? evt.detail.index : 0
+    this.activeStepIndex = index
+    this.storySteps = anim.setActiveStep(this.storySteps, index)
+    this.syncActiveShot()
+  },
+
+  onSwipeChange(evt) {
+    const index = evt.detail ? evt.detail.index : 0
+    this.activeStepIndex = index
+    this.storySteps = anim.setActiveStep(this.storySteps, index)
+    this.syncActiveShot()
+  },
+
+  onModeChange(event) {
+    this.overlayMode = event.currentTarget.dataset.mode || 'grid'
+  },
+
   goUpload() {
-    router.push({ uri: '/pages/upload' })
+    $routes.push('upload')
   }
 }
 </script>
@@ -99,159 +184,106 @@ export default {
 <style lang="less">
 @import './../../assets/styles/style.less';
 
-.page {
+.shoot-page {
   flex-direction: column;
   padding: 32px;
-  background-color: #f7f8f5;
+  background-color: @page-bg;
 }
 
-.topbar {
+.shoot-topbar {
   flex-direction: row;
   align-items: flex-start;
   justify-content: space-between;
-  margin-bottom: 22px;
+  margin-bottom: 20px;
 }
 
-.top-main {
+.shoot-top-main {
   flex: 1;
   flex-direction: column;
 }
 
-.heading {
+.shoot-heading {
   font-size: 38px;
   font-weight: bold;
-  color: #12181f;
+  color: @text-primary;
   margin-bottom: 8px;
 }
 
-.hint {
+.shoot-hint {
   font-size: 24px;
-  color: #7c838b;
+  color: @text-muted;
   line-height: 36px;
 }
 
-.badge {
+.shoot-badge {
   padding: 10px 16px;
-  border-radius: 8px;
+  border-radius: @radius-sm;
   background-color: #e7eee9;
-  color: #2f6f58;
+  color: @brand-primary;
   font-size: 22px;
 }
 
-.loading {
-  height: 180px;
-  align-items: center;
-  justify-content: center;
-}
-
-.loading-text {
-  font-size: 28px;
-  color: #7c838b;
-}
-
-.guide {
-  flex-direction: column;
-  margin-bottom: 24px;
-}
-
-.guide-item {
-  flex-direction: row;
-  align-items: center;
-  padding: 18px 20px;
-  margin-bottom: 14px;
-  border-radius: 10px;
-  background-color: #ffffff;
-}
-
-.guide-index {
-  width: 42px;
-  height: 42px;
-  border-radius: 21px;
-  text-align: center;
-  background-color: #2f6f58;
-  color: #ffffff;
-  font-size: 24px;
-}
-
-.guide-text {
-  flex: 1;
-  margin-left: 16px;
-  font-size: 26px;
-  color: #20242a;
-}
-
-.subheading {
-  font-size: 32px;
+.shoot-section-title {
+  font-size: 30px;
   font-weight: bold;
-  color: #12181f;
+  color: @text-primary;
+  margin-bottom: 12px;
+}
+
+.shoot-preview-wrap {
+  flex-direction: column;
   margin-bottom: 16px;
 }
 
-.shots {
+.shoot-preview {
   flex-direction: column;
-}
-
-.shot {
-  flex-direction: column;
+  justify-content: flex-end;
+  width: 100%;
+  height: 360px;
   padding: 24px;
-  margin-bottom: 16px;
-  border-radius: 10px;
-  background-color: #ffffff;
+  border-radius: @radius-md;
+  background-color: #22342d;
 }
 
-.shot-head {
-  flex-direction: row;
-  justify-content: space-between;
-  align-items: center;
+.shoot-preview-label {
+  font-size: 22px;
+  color: #b5cfc2;
   margin-bottom: 10px;
 }
 
-.shot-title {
-  flex: 1;
-  font-size: 28px;
+.shoot-preview-shot {
+  font-size: 32px;
   font-weight: bold;
-  color: #12181f;
-}
-
-.shot-duration {
-  font-size: 22px;
-  color: #2f6f58;
-}
-
-.shot-meta {
-  font-size: 23px;
-  color: #456b86;
+  color: @white;
   margin-bottom: 8px;
 }
 
-.shot-scene {
+.shoot-preview-meta {
   font-size: 24px;
-  color: #555d66;
-  margin-bottom: 8px;
+  color: #d8e5df;
 }
 
-.shot-tips {
-  font-size: 22px;
-  color: #8a9098;
-  line-height: 34px;
+.shoot-modes {
+  flex-direction: row;
+  margin-bottom: 20px;
 }
 
-.actions {
+.shoot-mode {
+  padding: 12px 20px;
+  margin-right: 12px;
+  border-radius: @radius-sm;
+  background-color: @surface;
+  font-size: 24px;
+  color: @text-muted;
+}
+
+.shoot-mode-on {
+  background-color: #e9f2ec;
+  color: @brand-primary;
+}
+
+.shoot-actions {
   flex-direction: column;
-  margin-top: 12px;
-}
-
-.btn {
-  height: 70px;
-  margin-bottom: 18px;
-  border-radius: 10px;
-  background-color: #e9ebee;
-  color: #111111;
-  font-size: 29px;
-}
-
-.primary {
-  background-color: #2f6f58;
-  color: #ffffff;
+  margin-top: 8px;
 }
 </style>

@@ -1,0 +1,117 @@
+@import './variables.less';
+
+/* 页面进入：淡入 + 轻微上滑，约 400ms */
+@keyframes animPageEnter {
+  from {
+    opacity: 0;
+    transform: translateY(24px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes animPageExit {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes animFadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes animFadeOut {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes animSlideUp {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes animSpin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes animCardLift {
+  from {
+    transform: translateY(0);
+  }
+  to {
+    transform: translateY(-6px);
+  }
+}
+
+@keyframes animCardExit {
+  from {
+    opacity: 1;
+    transform: scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.92);
+  }
+}
+
+.anim-page-enter {
+  animation-name: animPageEnter;
+  animation-duration: 400ms;
+  animation-fill-mode: forwards;
+  animation-timing-function: ease-out;
+}
+
+.anim-page-exit {
+  animation-name: animPageExit;
+  animation-duration: 300ms;
+  animation-fill-mode: forwards;
+}
+
+.anim-fade-in {
+  animation-name: animFadeIn;
+  animation-duration: 400ms;
+  animation-fill-mode: forwards;
+}
+
+.anim-fade-out {
+  animation-name: animFadeOut;
+  animation-duration: 300ms;
+  animation-fill-mode: forwards;
+}
+
+.anim-slide-up {
+  animation-name: animSlideUp;
+  animation-duration: 400ms;
+  animation-fill-mode: forwards;
+}
+
+.anim-card-exit {
+  animation-name: animCardExit;
+  animation-duration: 320ms;
+  animation-fill-mode: forwards;
+}

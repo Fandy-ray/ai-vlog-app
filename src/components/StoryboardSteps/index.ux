@@ -1,0 +1,137 @@
+<template>
+  <div class="c-storyboard">
+    <text class="c-storyboard-title">分镜步骤</text>
+    <block for="{{ (index, item) in steps }}">
+      <div
+        class="c-step c-step-{{ item.status }} {{ item.status === 'active' ? 'anim-slide-up' : '' }}"
+        data-index="{{ index }}"
+        onclick="onStepTap"
+      >
+        <div class="c-step-badge">
+          <text class="c-step-num">{{ item.order }}</text>
+        </div>
+        <div class="c-step-body">
+          <text class="c-step-title">{{ item.title }}</text>
+          <text class="c-step-desc">{{ item.desc }}</text>
+        </div>
+        <text class="c-step-mark">{{ item.status === 'done' ? '完成' : (item.status === 'active' ? '进行中' : '待拍') }}</text>
+      </div>
+    </block>
+  </div>
+</template>
+
+<script>
+export default {
+  props: {
+    steps: {
+      type: Array,
+      default: []
+    }
+  },
+
+  onStepTap(event) {
+    const index = Number(event.currentTarget.dataset.index)
+    this.$emit('stepclick', { index })
+  }
+}
+</script>
+
+<style lang="less">
+@import '../../assets/styles/variables.less';
+
+.c-storyboard {
+  flex-direction: column;
+  margin-bottom: 24px;
+}
+
+.c-storyboard-title {
+  font-size: 32px;
+  font-weight: bold;
+  color: @text-primary;
+  margin-bottom: 16px;
+}
+
+.c-step {
+  flex-direction: row;
+  align-items: center;
+  padding: 20px;
+  margin-bottom: 14px;
+  border-radius: @radius-md;
+  background-color: @surface;
+  border-width: 2px;
+  border-color: @surface;
+}
+
+.c-step-pending {
+  opacity: 0.72;
+}
+
+.c-step-active {
+  border-color: @brand-primary;
+  background-color: #eef5f1;
+}
+
+.c-step-done {
+  border-color: #d0ddd6;
+  background-color: #f4f8f6;
+}
+
+.c-step-badge {
+  width: 48px;
+  height: 48px;
+  border-radius: 24px;
+  background-color: #e9ebee;
+  align-items: center;
+  justify-content: center;
+  margin-right: 16px;
+}
+
+.c-step-active .c-step-badge {
+  background-color: @brand-primary;
+}
+
+.c-step-done .c-step-badge {
+  background-color: @brand-ok;
+}
+
+.c-step-num {
+  font-size: 24px;
+  color: @text-primary;
+  text-align: center;
+}
+
+.c-step-active .c-step-num {
+  color: @white;
+}
+
+.c-step-done .c-step-num {
+  color: @white;
+}
+
+.c-step-body {
+  flex: 1;
+  flex-direction: column;
+}
+
+.c-step-title {
+  font-size: 28px;
+  color: @text-primary;
+  margin-bottom: 6px;
+}
+
+.c-step-desc {
+  font-size: 22px;
+  color: @text-muted;
+}
+
+.c-step-mark {
+  width: 80px;
+  text-align: right;
+  font-size: 22px;
+  color: @brand-primary;
+}
+
+.c-step-done .c-step-mark {
+  color: @brand-ok;
+}
+</style>

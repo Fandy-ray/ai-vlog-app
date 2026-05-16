@@ -1,0 +1,95 @@
+<template>
+  <div class="c-preview-mask" show="{{ visible }}" onclick="onClose">
+    <div class="c-preview-panel anim-fade-in" onclick="onPanelTap">
+      <text class="c-preview-close" onclick="onClose">关闭</text>
+      <text class="c-preview-title">{{ title }}</text>
+      <image class="c-preview-image" show="{{ isImage }}" src="{{ uri }}"></image>
+      <video
+        class="c-preview-video"
+        show="{{ !isImage }}"
+        src="{{ uri }}"
+        controls="true"
+      ></video>
+    </div>
+  </div>
+</template>
+
+<script>
+export default {
+  props: {
+    visible: {
+      type: Boolean,
+      default: false
+    },
+    uri: {
+      type: String,
+      default: ''
+    },
+    title: {
+      type: String,
+      default: '素材预览'
+    },
+    isImage: {
+      type: Boolean,
+      default: true
+    }
+  },
+
+  onPanelTap() {},
+
+  onClose() {
+    this.$emit('close', {})
+  }
+}
+</script>
+
+<style lang="less">
+@import '../../assets/styles/variables.less';
+
+.c-preview-mask {
+  position: fixed;
+  left: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.72);
+  align-items: center;
+  justify-content: center;
+  padding: 32px;
+}
+
+.c-preview-panel {
+  flex-direction: column;
+  width: 100%;
+  padding: 24px;
+  border-radius: @radius-md;
+  background-color: @surface;
+}
+
+.c-preview-close {
+  align-self: flex-end;
+  font-size: 28px;
+  color: @brand-primary;
+  margin-bottom: 12px;
+}
+
+.c-preview-title {
+  font-size: 30px;
+  font-weight: bold;
+  color: @text-primary;
+  margin-bottom: 16px;
+}
+
+.c-preview-image {
+  width: 100%;
+  height: 480px;
+  object-fit: contain;
+  border-radius: @radius-sm;
+}
+
+.c-preview-video {
+  width: 100%;
+  height: 480px;
+  border-radius: @radius-sm;
+}
+</style>
