@@ -1,0 +1,123 @@
+<template>
+  <div class="c-overlay-wrap">
+    <div class="c-overlay-slot">
+      <slot name="default"></slot>
+    </div>
+    <div class="c-overlay" if="{{ visible }}" style="opacity: {{ opacity }};">
+      <block if="{{ mode === 'grid' }}">
+        <div class="c-line c-line-v c-line-v1"></div>
+        <div class="c-line c-line-v c-line-v2"></div>
+        <div class="c-line c-line-h c-line-h1"></div>
+        <div class="c-line c-line-h c-line-h2"></div>
+      </block>
+      <block if="{{ mode === 'center' }}">
+        <div class="c-line c-line-v c-line-center-v"></div>
+        <div class="c-line c-line-h c-line-center-h"></div>
+      </block>
+      <block if="{{ mode === 'golden' }}">
+        <div class="c-line c-line-v c-line-gv1"></div>
+        <div class="c-line c-line-v c-line-gv2"></div>
+        <div class="c-line c-line-h c-line-gh1"></div>
+        <div class="c-line c-line-h c-line-gh2"></div>
+      </block>
+    </div>
+  </div>
+</template>
+
+<script>
+export default {
+  props: {
+    mode: {
+      type: String,
+      default: 'grid'
+    },
+    visible: {
+      type: Boolean,
+      default: true
+    },
+    opacity: {
+      type: Number,
+      default: 0.35
+    }
+  }
+}
+</script>
+
+<style lang="less">
+.c-overlay-wrap {
+  flex-direction: column;
+  width: 100%;
+  position: relative;
+}
+
+.c-overlay-slot {
+  flex-direction: column;
+  width: 100%;
+}
+
+.c-overlay {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  flex-direction: column;
+}
+
+.c-line {
+  position: absolute;
+  background-color: rgba(255, 255, 255, 0.85);
+}
+
+.c-line-v {
+  width: 1px;
+  top: 0;
+  bottom: 0;
+}
+
+.c-line-h {
+  height: 1px;
+  left: 0;
+  right: 0;
+}
+
+.c-line-v1 {
+  left: 33%;
+}
+
+.c-line-v2 {
+  left: 66%;
+}
+
+.c-line-h1 {
+  top: 33%;
+}
+
+.c-line-h2 {
+  top: 66%;
+}
+
+.c-line-center-v {
+  left: 50%;
+}
+
+.c-line-center-h {
+  top: 50%;
+}
+
+.c-line-gv1 {
+  left: 38%;
+}
+
+.c-line-gv2 {
+  left: 62%;
+}
+
+.c-line-gh1 {
+  top: 38%;
+}
+
+.c-line-gh2 {
+  top: 62%;
+}
+</style>

@@ -1,0 +1,158 @@
+<import name="c-loading" src="../Loading/index.ux"></import>
+
+<template>
+  <div
+    class="c-upload {{ loading ? 'c-upload-loading' : '' }} {{ pressed ? 'c-upload-pressed' : '' }}"
+    onclick="onTap"
+    ontouchstart="onTouchStart"
+    ontouchend="onTouchEnd"
+  >
+    <c-loading
+      if="{{ loading }}"
+      mode="button"
+      text="{{ loadingText }}"
+      visible="{{ true }}"
+    ></c-loading>
+
+    <block if="{{ !loading }}">
+      <text class="c-upload-icon">＋</text>
+      <text class="c-upload-title">{{ title }}</text>
+      <text class="c-upload-hint">{{ hint }}</text>
+      <div class="c-upload-actions">
+        <input
+          class="c-upload-btn"
+          type="button"
+          value="选择视频"
+          onclick="onPickVideo"
+        />
+        <input
+          class="c-upload-btn"
+          type="button"
+          value="选择图片"
+          onclick="onPickImage"
+        />
+      </div>
+      <text class="c-upload-error" if="{{ errorText }}">{{ errorText }}</text>
+    </block>
+  </div>
+</template>
+
+<script>
+export default {
+  props: {
+    title: {
+      type: String,
+      default: '上传素材'
+    },
+    hint: {
+      type: String,
+      default: '点击选择图片或视频，上传后自动加入列表'
+    },
+    loading: {
+      type: Boolean,
+      default: false
+    },
+    loadingText: {
+      type: String,
+      default: '上传中...'
+    },
+    errorText: {
+      type: String,
+      default: ''
+    }
+  },
+
+  private: {
+    pressed: false
+  },
+
+  onTap() {
+    this.$emit('tapzone', {})
+  },
+
+  onPickVideo() {
+    this.$emit('pickvideo', {})
+  },
+
+  onPickImage() {
+    this.$emit('pickimage', {})
+  },
+
+  onTouchStart() {
+    this.pressed = true
+  },
+
+  onTouchEnd() {
+    this.pressed = false
+  }
+}
+</script>
+
+<style lang="less">
+@import '../../assets/styles/variables.less';
+
+.c-upload {
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 280px;
+  padding: 32px 24px;
+  border-radius: @radius-md;
+  border-width: 2px;
+  border-color: #d8e5df;
+  background-color: @surface;
+  margin-bottom: 24px;
+}
+
+.c-upload-pressed {
+  background-color: #f0f6f3;
+  border-color: @brand-primary;
+}
+
+.c-upload-loading {
+  border-color: #e0e4e8;
+}
+
+.c-upload-icon {
+  font-size: 56px;
+  color: @brand-primary;
+  margin-bottom: 12px;
+}
+
+.c-upload-title {
+  font-size: 32px;
+  font-weight: bold;
+  color: @text-primary;
+  margin-bottom: 10px;
+}
+
+.c-upload-hint {
+  font-size: 24px;
+  color: @text-muted;
+  text-align: center;
+  line-height: 36px;
+  margin-bottom: 20px;
+}
+
+.c-upload-actions {
+  flex-direction: row;
+  justify-content: center;
+  width: 100%;
+}
+
+.c-upload-btn {
+  width: 200px;
+  height: 64px;
+  margin: 0 10px;
+  border-radius: @radius-md;
+  background-color: #e9f2ec;
+  color: @brand-primary;
+  font-size: 26px;
+}
+
+.c-upload-error {
+  margin-top: 16px;
+  font-size: 24px;
+  color: #c45c4a;
+}
+</style>

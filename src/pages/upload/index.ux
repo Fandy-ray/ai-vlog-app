@@ -1,45 +1,63 @@
+<import name="c-upload-zone" src="../../components/UploadZone/index.ux"></import>
+<import name="c-material-card" src="../../components/MaterialCard/index.ux"></import>
+<import name="c-material-preview" src="../../components/MaterialPreview/index.ux"></import>
+<import name="c-button" src="../../components/Button/index.ux"></import>
+
 <template>
-  <div class="page">
-    <div class="top">
-      <text class="heading">上传素材</text>
-      <text class="hint">可以从相册选视频/图片；预览器不支持选文件时，直接使用 Mock 素材也能继续完整流程。</text>
-      <text class="status">{{ statusText }}</text>
+  <div class="page-shell upload-page {{ pageAnimClass }}">
+    <text class="upload-heading">素材上传与预览</text>
+    <text class="upload-hint">支持从相册选择图片/视频；预览器不支持选文件时可使用 Mock 素材联调。</text>
+    <text class="upload-status">{{ statusText }}</text>
+
+    <c-upload-zone
+      loading="{{ uploadLoading }}"
+      loading-text="素材上传中..."
+      error-text="{{ uploadError }}"
+      onpickvideo="pickVideo"
+      onpickimage="pickImage"
+    ></c-upload-zone>
+
+    <div class="upload-tools">
+      <c-button text="使用 Mock 素材" variant="ghost" onclick="useMockMaterials"></c-button>
     </div>
 
-    <div class="tools">
-      <input class="btn primary" type="button" value="选择视频" onclick="pickVideo" />
-      <input class="btn" type="button" value="选择图片" onclick="pickImage" />
-      <input class="btn ghost" type="button" value="使用 Mock 素材" onclick="useMockMaterials" />
+    <div class="upload-empty anim-fade-in" if="{{ !materials.length && !uploadLoading }}">
+      <text class="upload-empty-title">还没有素材</text>
+      <text class="upload-empty-text">上传后将在此以卡片网格展示</text>
     </div>
 
-    <div class="empty" if="{{ !materials.length }}">
-      <text class="empty-title">还没有素材</text>
-      <text class="empty-text">先选择视频/图片，或使用 Mock 素材进行联调。</text>
-    </div>
-
-    <div class="materials" if="{{ materials.length }}">
+    <div class="upload-grid anim-slide-up" if="{{ materials.length }}">
       <block for="{{ (index, item) in materials }}">
-        <div class="material">
-          <div class="material-main">
-            <text class="material-name">{{ item.name }}</text>
-            <text class="material-meta">{{ item.category }} / {{ item.duration }}s / {{ item.status || 'done' }}</text>
-            <text class="material-uri">{{ item.uri }}</text>
-          </div>
-          <text class="remove" data-index="{{ index }}" onclick="removeMaterial">删除</text>
-        </div>
+        <c-material-card
+          material="{{ item }}"
+          index="{{ index }}"
+          exiting="{{ removingIndex === index }}"
+          onpreview="onPreview"
+          onremove="onRemove"
+        ></c-material-card>
       </block>
     </div>
 
-    <div class="actions">
-      <input class="btn primary" type="button" value="生成 Vlog" onclick="goGenerate" />
-      <input class="btn" type="button" value="返回拍摄指引" onclick="goShoot" />
+    <c-material-preview
+      visible="{{ previewVisible }}"
+      uri="{{ previewUri }}"
+      title="{{ previewTitle }}"
+      is-image="{{ previewIsImage }}"
+      onclose="closePreview"
+    ></c-material-preview>
+
+    <div class="upload-actions">
+      <c-button text="生成 Vlog" variant="primary" onclick="goGenerate"></c-button>
+      <c-button text="返回拍摄指引" variant="default" onclick="goShoot"></c-button>
     </div>
   </div>
 </template>
 
 <script>
+import anim from '../../assets/js/animations'
 import media from '@system.media'
-import router from '@system.router'
+import prompt from '@system.prompt'
+import $routes from '../../helper/routes'
 import vlogApi from '../../helper/apis/vlog'
 import store from '../../helper/store'
 import $utils from '../../helper/utils'
@@ -51,18 +69,28 @@ function filenameFromUri(uri = '', index = 0, ext = 'mp4') {
 
 export default {
   private: {
+    pageAnimClass: '',
     statusText: '等待选择素材',
-    materials: []
+    materials: [],
+    uploadLoading: false,
+    uploadError: '',
+    removingIndex: -1,
+    previewVisible: false,
+    previewUri: '',
+    previewTitle: '',
+    previewIsImage: true
   },
 
   onInit() {
-    this.$page.setTitleBar({ text: '上传' })
+    this.$page.setTitleBar({ text: '上传素材' })
     this.materials = store.state.materials || []
+    anim.triggerPageEnter(this)
     this.updateStatus()
   },
 
   onShow() {
     this.materials = store.state.materials || []
+    anim.triggerPageEnter(this)
     this.updateStatus()
   },
 
@@ -91,7 +119,7 @@ export default {
       this.handlePicked(uris, kind)
     }
     const fail = () => {
-      this.statusText = '当前环境不能打开相册，可使用 Mock 素材继续联调'
+      this.uploadError = '选取素材失败，请重试或使用 Mock 素材'
       $utils.showToast('选取素材失败')
     }
 
@@ -117,6 +145,8 @@ export default {
       return
     }
 
+    this.uploadLoading = true
+    this.uploadError = ''
     this.statusText = '素材上传中...'
 
     let queue = Promise.resolve()
@@ -152,7 +182,10 @@ export default {
             const list = this.materials.slice()
             list.splice(targetIndex, 1, {
               ...material,
-              status: material.uri && material.uri.indexOf('mock://') === 0 ? 'mocked' : 'done'
+              status:
+                material.uri && material.uri.indexOf('mock://') === 0
+                  ? 'mocked'
+                  : 'done'
             })
             this.materials = list
             this.syncStore()
@@ -162,15 +195,19 @@ export default {
 
     queue
       .then(() => {
+        this.uploadLoading = false
         this.statusText = `已准备 ${this.materials.length} 个素材`
       })
       .catch(() => {
-        this.statusText = '部分素材上传失败，已保留本地占位'
+        this.uploadLoading = false
+        this.uploadError = '部分素材上传失败，已保留本地占位'
         this.syncStore()
       })
   },
 
   useMockMaterials() {
+    this.uploadLoading = true
+    this.uploadError = ''
     this.statusText = '正在读取 Mock 素材...'
 
     vlogApi
@@ -187,16 +224,58 @@ export default {
         this.syncStore()
       })
       .catch(() => {
+        this.uploadError = 'Mock 素材加载失败'
         $utils.showToast('Mock 素材加载失败')
+      })
+      .finally(() => {
+        this.uploadLoading = false
       })
   },
 
-  removeMaterial(event) {
-    const index = Number(event.currentTarget.dataset.index)
-    const list = this.materials.slice()
-    list.splice(index, 1)
-    this.materials = list
-    this.syncStore()
+  onPreview(evt) {
+    const index = evt.detail ? evt.detail.index : 0
+    const item = this.materials[index]
+
+    if (!item) {
+      return
+    }
+
+    this.previewUri = item.uri || ''
+    this.previewTitle = item.name || '素材预览'
+    this.previewIsImage = item.category === 'image'
+    this.previewVisible = true
+  },
+
+  closePreview() {
+    this.previewVisible = false
+  },
+
+  onRemove(evt) {
+    const index = evt.detail ? evt.detail.index : 0
+
+    prompt.showDialog({
+      title: '删除素材',
+      message: '确定从列表中移除该素材吗？',
+      buttons: [
+        { text: '取消', color: '#666666' },
+        { text: '删除', color: '#c45c4a' }
+      ],
+      success: data => {
+        if (data.index !== 1) {
+          return
+        }
+
+        this.removingIndex = index
+
+        setTimeout(() => {
+          const list = this.materials.slice()
+          list.splice(index, 1)
+          this.materials = list
+          this.removingIndex = -1
+          this.syncStore()
+        }, anim.DURATION_MS)
+      }
+    })
   },
 
   goGenerate() {
@@ -206,11 +285,11 @@ export default {
     }
 
     this.syncStore()
-    router.push({ uri: '/pages/generate' })
+    $routes.push('generate')
   },
 
   goShoot() {
-    router.push({ uri: '/pages/shoot' })
+    $routes.push('shoot')
   }
 }
 </script>
@@ -218,127 +297,67 @@ export default {
 <style lang="less">
 @import './../../assets/styles/style.less';
 
-.page {
+.upload-page {
   flex-direction: column;
   padding: 32px;
-  background-color: #f7f8f5;
+  background-color: @page-bg;
 }
 
-.top {
-  flex-direction: column;
-  margin-bottom: 22px;
-}
-
-.heading {
+.upload-heading {
   font-size: 38px;
   font-weight: bold;
-  color: #12181f;
+  color: @text-primary;
   margin-bottom: 10px;
 }
 
-.hint {
+.upload-hint {
   font-size: 24px;
   line-height: 36px;
-  color: #7c838b;
-  margin-bottom: 14px;
+  color: @text-muted;
+  margin-bottom: 12px;
 }
 
-.status {
+.upload-status {
   font-size: 24px;
-  color: #2f6f58;
+  color: @brand-primary;
+  margin-bottom: 20px;
 }
 
-.tools {
+.upload-tools {
   flex-direction: column;
-  margin-bottom: 22px;
-}
-
-.btn {
-  height: 70px;
-  margin-bottom: 16px;
-  border-radius: 10px;
-  background-color: #e9ebee;
-  color: #111111;
-  font-size: 29px;
-}
-
-.primary {
-  background-color: #2f6f58;
-  color: #ffffff;
-}
-
-.ghost {
-  background-color: #ffffff;
-  color: #2f6f58;
-}
-
-.empty {
-  flex-direction: column;
-  justify-content: center;
-  align-items: center;
-  min-height: 220px;
-  padding: 28px;
-  border-radius: 10px;
-  background-color: #ffffff;
-  margin-bottom: 22px;
-}
-
-.empty-title {
-  font-size: 30px;
-  color: #12181f;
-  margin-bottom: 10px;
-}
-
-.empty-text {
-  font-size: 24px;
-  color: #8a9098;
-  text-align: center;
-}
-
-.materials {
-  flex-direction: column;
-  margin-bottom: 22px;
-}
-
-.material {
-  flex-direction: row;
-  align-items: center;
-  padding: 22px;
-  margin-bottom: 16px;
-  border-radius: 10px;
-  background-color: #ffffff;
-}
-
-.material-main {
-  flex: 1;
-  flex-direction: column;
-}
-
-.material-name {
-  font-size: 28px;
-  color: #12181f;
   margin-bottom: 8px;
 }
 
-.material-meta {
-  font-size: 22px;
-  color: #456b86;
-  margin-bottom: 6px;
+.upload-empty {
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 160px;
+  padding: 28px;
+  border-radius: @radius-md;
+  background-color: @surface;
+  margin-bottom: 20px;
 }
 
-.material-uri {
-  font-size: 20px;
-  color: #9aa0a8;
+.upload-empty-title {
+  font-size: 30px;
+  color: @text-primary;
+  margin-bottom: 8px;
 }
 
-.remove {
-  width: 76px;
-  text-align: right;
+.upload-empty-text {
   font-size: 24px;
-  color: #b55b4f;
+  color: @text-muted;
 }
 
-.actions {
+.upload-grid {
+  flex-direction: row;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  margin-bottom: 24px;
+}
+
+.upload-actions {
   flex-direction: column;
 }
 </style>

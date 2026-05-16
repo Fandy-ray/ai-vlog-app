@@ -1,11 +1,18 @@
 <template>
-  <input
-    class="c-btn c-btn-{{ variant }} c-btn-block {{ disabled ? 'c-btn-disabled-state' : '' }}"
-    type="button"
-    value="{{ text }}"
-    disabled="{{ disabled }}"
-    onclick="handleClick"
-  />
+  <div class="c-btn-root">
+    <input
+      class="c-btn c-btn-{{ variant }} c-btn-block {{ disabled ? 'c-btn-disabled-state' : '' }}"
+      type="button"
+      value="{{ text }}"
+      disabled="{{ disabled }}"
+      show="{{ !loading }}"
+      onclick="handleClick"
+    />
+    <div class="c-btn-loading-wrap" show="{{ loading }}">
+      <div class="c-btn-loading-spinner"></div>
+      <text class="c-btn-loading-text">{{ loadingText }}</text>
+    </div>
+  </div>
 </template>
 
 <script>
@@ -22,11 +29,19 @@ export default {
     disabled: {
       type: Boolean,
       default: false
+    },
+    loading: {
+      type: Boolean,
+      default: false
+    },
+    loadingText: {
+      type: String,
+      default: '处理中...'
     }
   },
 
   handleClick() {
-    if (this.disabled) {
+    if (this.disabled || this.loading) {
       return
     }
 
@@ -37,6 +52,11 @@ export default {
 
 <style lang="less">
 @import '../../assets/styles/variables.less';
+
+.c-btn-root {
+  flex-direction: column;
+  width: 100%;
+}
 
 .c-btn {
   height: 72px;
@@ -71,5 +91,33 @@ export default {
 
 .c-btn-disabled-state {
   opacity: 0.45;
+}
+
+.c-btn-loading-wrap {
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  height: 72px;
+  margin-bottom: 18px;
+  border-radius: @radius-md;
+  background-color: #e9ebee;
+}
+
+.c-btn-loading-spinner {
+  width: 32px;
+  height: 32px;
+  border-radius: 16px;
+  border-width: 3px;
+  border-color: #d8dde2;
+  border-top-color: @brand-primary;
+  margin-right: 12px;
+  animation-name: animSpin;
+  animation-duration: 800ms;
+  animation-iteration-count: infinite;
+}
+
+.c-btn-loading-text {
+  font-size: 28px;
+  color: @text-muted;
 }
 </style>
