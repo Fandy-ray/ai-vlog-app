@@ -1,0 +1,55 @@
+/* 滤镜强度滑块 */
+.filter-intensity-slider {
+  background: linear-gradient(
+    to right,
+    var(--color-primary) 0%,
+    var(--color-primary) var(--slider-progress, 50%),
+    var(--color-border) var(--slider-progress, 50%),
+    var(--color-border) 100%
+  );
+}
+
+.filter-intensity-slider::-webkit-slider-runnable-track {
+  height: 6px;
+  border-radius: 999px;
+  background: transparent;
+}
+
+.filter-intensity-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 20px;
+  height: 20px;
+  margin-top: -7px;
+  border-radius: 50%;
+  background: var(--color-surface);
+  border: 2px solid var(--color-primary);
+  box-shadow: 0 2px 8px rgb(94 124 224 / 25%);
+  cursor: grab;
+}
+
+.filter-intensity-slider::-webkit-slider-thumb:active {
+  cursor: grabbing;
+  transform: scale(1.08);
+}
+
+.filter-intensity-slider::-moz-range-track {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--color-border);
+}
+
+.filter-intensity-slider::-moz-range-progress {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--color-primary);
+}
+
+.filter-intensity-slider::-moz-range-thumb {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--color-surface);
+  border: 2px solid var(--color-primary);
+  box-shadow: 0 2px 8px rgb(94 124 224 / 25%);
+  cursor: grab;
+}

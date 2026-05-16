@@ -1,0 +1,27 @@
+/* 忆眸 Memento · 设计令牌 */
+
+@theme {
+  --color-primary: #5e7ce0;
+  --color-primary-light: #7b94e8;
+  --color-primary-dark: #4a66c8;
+  --color-accent: #ffb357;
+  --color-accent-light: #ffc985;
+  --color-bg: #f7f9fc;
+  --color-surface: #ffffff;
+  --color-text: #2c3e50;
+  --color-text-secondary: #5b6b7f;
+  --color-text-muted: #8e9aab;
+  --color-border: #e8ecf2;
+  --color-track-video: #d4dcf5;
+  --color-track-audio: #5e7ce0;
+  --color-track-music: #ffb357;
+  --font-sans: 'Noto Sans SC', system-ui, -apple-system, sans-serif;
+  --shadow-soft: 0 4px 20px rgb(94 124 224 / 8%);
+  --shadow-card: 0 2px 12px rgb(44 62 80 / 6%);
+  --shadow-hero: 0 8px 32px rgb(94 124 224 / 18%);
+  --radius-sm: 10px;
+  --radius-md: 14px;
+  --radius-lg: 16px;
+  --radius-xl: 20px;
+  --radius-2xl: 24px;
+}
