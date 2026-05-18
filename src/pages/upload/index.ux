@@ -6,7 +6,7 @@
 <template>
   <div class="page-shell upload-page {{ pageAnimClass }}">
     <text class="upload-heading">素材上传与预览</text>
-    <text class="upload-hint">支持从相册选择图片/视频；预览器不支持选文件时可使用 Mock 素材联调。</text>
+    <text class="upload-hint">支持从相册选择视频/图片，选中后立即加入列表；真机调试请授予相册权限。</text>
     <text class="upload-status">{{ statusText }}</text>
 
     <c-upload-zone
@@ -145,64 +145,71 @@ export default {
       return
     }
 
-    this.uploadLoading = true
     this.uploadError = ''
-    this.statusText = '素材上传中...'
+    this.statusText = '正在导入素材...'
 
-    let queue = Promise.resolve()
-
-    uris.forEach((uri, index) => {
-      const file = {
-        uri,
-        filename: filenameFromUri(uri, index, kind === 'video' ? 'mp4' : 'jpg')
-      }
-      const pending = {
-        id: `pending-${Date.now()}-${index}`,
+    const baseIndex = this.materials.length
+    const picked = uris.map((uri, index) => {
+      const filename = filenameFromUri(uri, index, kind === 'video' ? 'mp4' : 'jpg')
+      return {
+        id: `local-${Date.now()}-${index}`,
         type: store.state.type,
         category: kind,
-        name: file.filename,
+        name: filename,
         duration: kind === 'video' ? 5 : 3,
-        tags: ['upload', kind],
-        sortWeight: 50 + this.materials.length + index,
+        tags: ['upload', kind, 'local'],
+        sortWeight: 50 + baseIndex + index,
         uri,
-        status: 'uploading'
+        status: 'done'
       }
-      const targetIndex = this.materials.length
+    })
 
-      this.materials = this.materials.concat([pending])
+    this.materials = this.materials.concat(picked)
+    this.syncStore()
+    $utils.showToast(`已导入 ${picked.length} 个${kind === 'video' ? '视频' : '图片'}`)
+    this.statusText = `已准备 ${this.materials.length} 个素材`
+
+    this.uploadLoading = true
+    let queue = Promise.resolve()
+
+    picked.forEach((item, index) => {
+      const file = {
+        uri: item.uri,
+        filename: item.name,
+        category: kind
+      }
 
       queue = queue.then(() => {
         return vlogApi
           .uploadMaterial(file, {
             type: store.state.type,
             category: kind,
-            index: targetIndex
+            index: baseIndex + index
           })
           .then(material => {
             const list = this.materials.slice()
-            list.splice(targetIndex, 1, {
-              ...material,
-              status:
-                material.uri && material.uri.indexOf('mock://') === 0
-                  ? 'mocked'
-                  : 'done'
-            })
-            this.materials = list
-            this.syncStore()
+            const targetIndex = baseIndex + index
+            if (list[targetIndex]) {
+              list[targetIndex] = {
+                ...list[targetIndex],
+                ...material,
+                uri: material.uri || list[targetIndex].uri,
+                status:
+                  material.uri && material.uri.indexOf('mock://') === 0
+                    ? 'mocked'
+                    : 'done'
+              }
+              this.materials = list
+              this.syncStore()
+            }
           })
+          .catch(() => {})
       })
     })
 
-    queue
-      .then(() => {
-        this.uploadLoading = false
-        this.statusText = `已准备 ${this.materials.length} 个素材`
-      })
-      .catch(() => {
-        this.uploadLoading = false
-        this.uploadError = '部分素材上传失败，已保留本地占位'
-        this.syncStore()
-      })
+    queue.finally(() => {
+      this.uploadLoading = false
+    })
   },
 
   useMockMaterials() {

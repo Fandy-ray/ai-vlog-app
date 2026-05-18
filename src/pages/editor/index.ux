@@ -1,0 +1,653 @@
+<import name="c-button" src="../../components/Button/index.ux"></import>
+<import name="c-sticker-overlay" src="../../components/EditorStickerOverlay/index.ux"></import>
+
+<template>
+  <div class="web-page-with-nav editor-page">
+    <div class="web-sticky-header editor-top">
+      <text class="web-back-btn" onclick="goBack">‹</text>
+      <text class="web-header-title web-sticky-header-center">{{ session.title }}</text>
+      <text class="web-section-link" onclick="onExport">导出</text>
+    </div>
+
+    <stack class="web-editor-preview">
+      <video
+        if="{{ previewVideoSrc }}"
+        class="editor-video"
+        src="{{ previewVideoSrc }}"
+        poster="{{ previewPoster }}"
+        autoplay="{{ false }}"
+        controls="{{ false }}"
+      ></video>
+      <image
+        if="{{ !previewVideoSrc }}"
+        class="editor-video"
+        src="{{ previewPoster }}"
+      ></image>
+      <div
+        class="web-editor-overlay editor-filter-layer"
+        style="background-color: {{ filterOverlay }}; opacity: {{ filterOpacity }};"
+      ></div>
+      <div
+        class="web-editor-overlay"
+        style="background-color: {{ effectOverlay }};"
+        show="{{ effectVisible }}"
+      ></div>
+      <text class="web-editor-text" if="{{ previewText }}">{{ previewText }}</text>
+      <block for="{{ (index, item) in previewStickers }}">
+        <c-sticker-overlay
+          overlay="{{ item.overlay }}"
+          editable="{{ item.editable }}"
+          onchange="onStickerChange"
+          onactivate="onStickerActivate"
+        ></c-sticker-overlay>
+      </block>
+      <div class="editor-play-btn" onclick="togglePlay">
+        <text class="editor-play-icon">{{ isPlaying ? '❚❚' : '▶' }}</text>
+      </div>
+    </stack>
+
+    <list class="editor-timeline-list" scrollpage="{{ true }}">
+      <list-item type="clip" class="editor-timeline-item" for="{{ (index, clip) in clips }}">
+        <image
+          class="web-timeline-clip {{ activeClipIndex === index ? 'web-timeline-clip-active' : '' }}"
+          src="{{ clip.thumb || clip.poster }}"
+          onclick="onClipSelect"
+          data-index="{{ index }}"
+        ></image>
+      </list-item>
+    </list>
+
+    <div class="web-panel" show="{{ panelVisible }}">
+      <text class="web-panel-title">{{ panelTitle }}</text>
+
+      <block if="{{ activeTool === 'filter' }}">
+        <div class="editor-chip-row">
+          <block for="{{ (index, item) in filterPresets }}">
+            <text
+              class="editor-chip {{ session.filterId === item.id ? 'editor-chip-active' : '' }}"
+              onclick="onFilterPick"
+              data-id="{{ item.id }}"
+            >{{ item.name }}</text>
+          </block>
+        </div>
+      </block>
+
+      <block if="{{ activeTool === 'effect' }}">
+        <div class="editor-chip-row">
+          <block for="{{ (index, item) in effectPresets }}">
+            <text
+              class="editor-chip {{ session.effectId === item.id ? 'editor-chip-active' : '' }}"
+              onclick="onEffectPick"
+              data-id="{{ item.id }}"
+            >{{ item.name }}</text>
+          </block>
+        </div>
+      </block>
+
+      <block if="{{ activeTool === 'text' }}">
+        <div class="editor-chip-row">
+          <block for="{{ (index, item) in textPresets }}">
+            <text
+              class="editor-chip {{ session.textPresetId === item.id ? 'editor-chip-active' : '' }}"
+              onclick="onTextPick"
+              data-id="{{ item.id }}"
+            >{{ item.label }}</text>
+          </block>
+        </div>
+      </block>
+
+      <block if="{{ activeTool === 'audio' }}">
+        <text class="web-header-sub" onclick="toggleKeepAudio">原声：{{ session.keepOriginalAudio ? '保留' : '关闭' }}</text>
+        <div class="editor-chip-row editor-bgm-row">
+          <block for="{{ (index, item) in bgmList }}">
+            <text
+              class="editor-chip {{ session.bgmId === item.id ? 'editor-chip-active' : '' }}"
+              onclick="onBgmPick"
+              data-id="{{ item.id }}"
+            >{{ item.name }}</text>
+          </block>
+        </div>
+      </block>
+
+      <block if="{{ activeTool === 'sticker' }}">
+        <text class="web-header-sub sticker-hint">选择贴纸后可在画面上拖动位置</text>
+        <div class="editor-sticker-grid">
+          <block for="{{ (index, item) in stickerPresets }}">
+            <text
+              class="editor-sticker-pick {{ draftSticker && draftSticker.stickerId === item.id ? 'editor-chip-active' : '' }}"
+              onclick="onStickerPick"
+              data-id="{{ item.id }}"
+            >{{ item.emoji }}</text>
+          </block>
+        </div>
+        <text class="web-section-link sticker-remove" onclick="removeDraftSticker" if="{{ draftSticker }}">移除当前贴纸</text>
+      </block>
+
+      <div class="web-panel-actions" show="{{ activeTool !== 'cut' }}">
+        <text class="web-panel-btn" onclick="closePanel">取消</text>
+        <text class="web-panel-btn web-panel-btn-primary" onclick="confirmPanel">应用</text>
+      </div>
+    </div>
+
+    <div class="web-editor-toolbar">
+      <block for="{{ (index, tool) in tools }}">
+        <div
+          class="web-editor-tool {{ activeTool === tool.id ? 'web-editor-tool-active' : '' }}"
+          onclick="onToolSelect"
+          data-id="{{ tool.id }}"
+          data-label="{{ tool.label }}"
+        >
+          <text class="web-editor-tool-icon">{{ tool.icon }}</text>
+          <text class="web-editor-tool-label">{{ tool.label }}</text>
+        </div>
+      </block>
+    </div>
+
+    <div class="editor-export-mask" show="{{ exporting }}">
+      <text class="editor-export-text">{{ exportMessage }}</text>
+      <div class="editor-export-progress-track">
+        <div class="editor-export-progress-bar" style="width: {{ exportProgress }}%;"></div>
+      </div>
+      <text class="editor-export-cancel" onclick="cancelExport">取消</text>
+    </div>
+  </div>
+</template>
+
+<script>
+import $routes from '../../helper/routes'
+import $utils from '../../helper/utils'
+import { formatTime } from '../../helper/formatTime'
+import {
+  FILTER_PRESETS,
+  TEXT_PRESETS,
+  EFFECT_PRESETS,
+  EDITOR_TOOLS,
+  getFilterOverlay,
+  getEffectOverlay
+} from '../../helper/data/editorPresets'
+import { NETWORK_AUDIOS } from '../../helper/data/audioLibrary'
+import { PROJECT_DURATION } from '../../helper/data/mockProject'
+import { STICKER_PRESETS, createDefaultStickerOverlay } from '../../helper/data/stickers'
+import { createDefaultTextOverlay } from '../../helper/data/textStyles'
+import { normalizeSession } from '../../helper/export/sessionAdapter'
+import { exportEditedVideo } from '../../helper/export/deviceExport'
+
+export default {
+  private: {
+    clips: [],
+    projectDuration: PROJECT_DURATION,
+    session: {},
+    activeClipIndex: 0,
+    currentTime: 0,
+    isPlaying: false,
+    activeTool: 'cut',
+    panelVisible: false,
+    panelTitle: '',
+    tools: EDITOR_TOOLS,
+    filterPresets: FILTER_PRESETS,
+    effectPresets: EFFECT_PRESETS,
+    textPresets: TEXT_PRESETS,
+    bgmList: NETWORK_AUDIOS,
+    stickerPresets: STICKER_PRESETS,
+    draftSticker: null,
+    previewStickers: [],
+    previewText: '',
+    previewPoster: '',
+    previewVideoSrc: '',
+    filterOverlay: 'rgba(0,0,0,0)',
+    filterOpacity: 0,
+    effectOverlay: 'rgba(0,0,0,0)',
+    effectVisible: false,
+    exporting: false,
+    exportCancelled: false,
+    exportMessage: '正在导出…',
+    exportProgress: 0,
+    playTimer: null
+  },
+
+  onInit() {
+    if (!$editorStore.hasEditorProject()) {
+      $routes.replace('create')
+      return
+    }
+
+    const project = $editorStore.getEditorProject()
+    this.clips = project.clips
+    this.projectDuration = project.duration
+    this.session = normalizeSession($editorStore.getEditorSession())
+    $editorStore.setEditorSession(this.session)
+    this.syncPreview()
+  },
+
+  onShow() {
+    this.syncPreview()
+  },
+
+  onDestroy() {
+    this.stopPlayback()
+  },
+
+  syncPreview() {
+    const info = $editorStore.getClipAtTime(this.clips, this.currentTime)
+    const clip = info.clip || this.clips[0]
+    this.activeClipIndex = info.index
+    this.previewPoster = clip.poster || clip.thumb
+    this.previewVideoSrc = clip.videoSrc || ''
+    this.filterOverlay = getFilterOverlay(this.session.filterId)
+    this.filterOpacity = (this.session.filterIntensity || 100) / 100
+    const effect = getEffectOverlay(this.session.effectId || 'none')
+    this.effectOverlay = effect
+    this.effectVisible = effect !== 'rgba(0,0,0,0)'
+    const text = this.session.textOverlay || null
+    this.previewText = text && text.content ? text.content : this.session.textContent || ''
+    this.refreshPreviewStickers()
+  },
+
+  refreshPreviewStickers() {
+    const list = (this.session.stickerOverlays || []).map(overlay => ({
+      overlay,
+      editable: false
+    }))
+
+    if (this.activeTool === 'sticker' && this.draftSticker) {
+      list.push({
+        overlay: this.draftSticker,
+        editable: true
+      })
+    }
+
+    this.previewStickers = list
+  },
+
+  goBack() {
+    $routes.back()
+  },
+
+  resolveAttr(evt, key) {
+    let target = evt && evt.target
+    while (target) {
+      if (target.attr && target.attr[key] !== undefined && target.attr[key] !== '') {
+        return target.attr[key]
+      }
+      target = target.parentElement || target.parent
+    }
+    return ''
+  },
+
+  onClipSelect(evt) {
+    const index = Number(this.resolveAttr(evt, 'index'))
+    let start = 0
+    for (let i = 0; i < index; i += 1) {
+      start += this.clips[i].duration
+    }
+    this.currentTime = start
+    this.stopPlayback()
+    this.syncPreview()
+  },
+
+  togglePlay() {
+    if (this.isPlaying) {
+      this.stopPlayback()
+      return
+    }
+
+    this.isPlaying = true
+    this.playTimer = setInterval(() => {
+      const next = this.currentTime + 0.2
+      if (next >= this.projectDuration) {
+        this.currentTime = 0
+        this.stopPlayback()
+      } else {
+        this.currentTime = next
+      }
+      this.syncPreview()
+    }, 200)
+  },
+
+  stopPlayback() {
+    this.isPlaying = false
+    if (this.playTimer) {
+      clearInterval(this.playTimer)
+      this.playTimer = null
+    }
+  },
+
+  onToolSelect(evt) {
+    const id = this.resolveAttr(evt, 'id')
+    const label = this.resolveAttr(evt, 'label')
+
+    if (id === 'cut') {
+      this.activeTool = 'cut'
+      this.panelVisible = false
+      $utils.showToast('拖动时间轴或点击片段切换位置')
+      return
+    }
+
+    if (id === 'sticker') {
+      this.activeTool = 'sticker'
+      this.panelVisible = true
+      this.panelTitle = label
+      this.draftSticker = null
+      this.refreshPreviewStickers()
+      return
+    }
+
+    this.activeTool = id
+    this.panelVisible = true
+    this.panelTitle = label
+  },
+
+  closePanel() {
+    if (this.activeTool === 'sticker') {
+      this.draftSticker = null
+    }
+    this.panelVisible = false
+    this.activeTool = 'cut'
+    this.refreshPreviewStickers()
+  },
+
+  confirmPanel() {
+    if (this.activeTool === 'sticker' && this.draftSticker) {
+      const overlays = (this.session.stickerOverlays || []).slice()
+      overlays.push(Object.assign({}, this.draftSticker))
+      this.session = Object.assign({}, this.session, { stickerOverlays: overlays })
+      this.draftSticker = null
+    }
+
+    this.session = normalizeSession(this.session)
+    $editorStore.setEditorSession(this.session)
+    this.syncPreview()
+    this.closePanel()
+    $utils.showToast('已应用')
+  },
+
+  onStickerPick(evt) {
+    const stickerId = this.resolveAttr(evt, 'id')
+    const count = (this.session.stickerOverlays || []).length
+    this.draftSticker = createDefaultStickerOverlay(stickerId, count)
+    this.refreshPreviewStickers()
+  },
+
+  removeDraftSticker() {
+    this.draftSticker = null
+    this.refreshPreviewStickers()
+  },
+
+  onStickerChange(evt) {
+    const detail = (evt && evt.detail) || evt || {}
+    if (!this.draftSticker || this.draftSticker.id !== detail.id) {
+      return
+    }
+    this.draftSticker = Object.assign({}, this.draftSticker, {
+      x: detail.x,
+      y: detail.y
+    })
+    this.refreshPreviewStickers()
+  },
+
+  onStickerActivate() {
+    if (this.activeTool !== 'sticker') {
+      this.activeTool = 'sticker'
+      this.panelVisible = true
+      this.panelTitle = '贴纸'
+    }
+  },
+
+  onFilterPick(evt) {
+    const id = this.resolveAttr(evt, 'id')
+    this.session = Object.assign({}, this.session, { filterId: id })
+    this.syncPreview()
+  },
+
+  onEffectPick(evt) {
+    const id = this.resolveAttr(evt, 'id')
+    this.session = Object.assign({}, this.session, { effectId: id })
+    this.syncPreview()
+  },
+
+  onTextPick(evt) {
+    const id = this.resolveAttr(evt, 'id')
+    const preset = this.textPresets.find(item => item.id === id)
+    const content = preset && preset.content ? preset.content : ''
+    const textOverlay = content ? createDefaultTextOverlay(content) : null
+    this.session = Object.assign({}, this.session, {
+      textPresetId: id,
+      textContent: content,
+      textOverlay
+    })
+    this.syncPreview()
+  },
+
+  toggleKeepAudio() {
+    this.session = Object.assign({}, this.session, {
+      keepOriginalAudio: !this.session.keepOriginalAudio
+    })
+  },
+
+  onBgmPick(evt) {
+    const id = this.resolveAttr(evt, 'id')
+    this.session = Object.assign({}, this.session, { bgmId: id })
+  },
+
+  onExport() {
+    const hasLocal = this.clips.some(clip => clip.videoSrc)
+    if (!hasLocal) {
+      $utils.showToast('导出需要本地导入的视频素材')
+      return
+    }
+
+    if (this.activeTool === 'sticker' && this.draftSticker) {
+      this.confirmPanel()
+    }
+
+    this.exporting = true
+    this.exportCancelled = false
+    this.exportProgress = 2
+    this.exportMessage = '准备导出…'
+    this.stopPlayback()
+
+    const snapshot = normalizeSession(this.session)
+    $editorStore.setEditorSession(snapshot)
+    this.session = snapshot
+
+    exportEditedVideo(this.clips, this.projectDuration, snapshot, {
+      onProgress: progress => {
+        if (this.exportCancelled) {
+          return
+        }
+        this.exportMessage = progress.message
+        this.exportProgress = Math.round((progress.progress || 0) * 100)
+      },
+      isCancelled: () => this.exportCancelled
+    })
+      .then(result => {
+        if (this.exportCancelled) {
+          return
+        }
+        $editorStore.setExportedVideo({
+          title: result.title,
+          posterUrl: result.posterUrl,
+          duration: result.duration,
+          durationLabel: result.durationLabel,
+          uri: result.uri,
+          mimeType: result.mimeType,
+          source: result.source
+        })
+        this.exporting = false
+        const tip =
+          result.source === 'server'
+            ? '成片已导出（滤镜/贴纸/文字已烧录）'
+            : '已保存本机成片（连接导出服务可完整烧录特效）'
+        $utils.showToast(tip)
+        $routes.push('complete')
+      })
+      .catch(error => {
+        this.exporting = false
+        if (error && error.message === 'cancelled') {
+          $utils.showToast('已取消导出')
+          return
+        }
+        $utils.showToast((error && error.message) || '导出失败，请重试')
+      })
+  },
+
+  cancelExport() {
+    this.exportCancelled = true
+    this.exporting = false
+  }
+}
+</script>
+
+<style lang="less">
+@import './../../assets/styles/style.less';
+
+.editor-page {
+  flex-direction: column;
+  flex: 1;
+  background-color: #111111;
+}
+
+.editor-timeline-list {
+  width: 100%;
+  height: 96px;
+  flex-direction: row;
+  padding: 12px @page-padding;
+  background-color: @surface;
+}
+
+.editor-timeline-item {
+  width: 128px;
+  height: 72px;
+  margin-right: 12px;
+}
+
+.editor-top {
+  background-color: fade(#111111, 92%);
+}
+
+.editor-top .web-header-title,
+.editor-top .web-section-link {
+  color: @white;
+}
+
+.editor-video {
+  width: 100%;
+  height: 420px;
+  object-fit: cover;
+}
+
+.editor-play-btn {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 96px;
+  height: 96px;
+  margin-left: -48px;
+  margin-top: -48px;
+  border-radius: 48px;
+  background-color: rgba(255, 255, 255, 0.25);
+  align-items: center;
+  justify-content: center;
+}
+
+.editor-play-icon {
+  font-size: 36px;
+  color: @white;
+  text-align: center;
+  padding-top: 24px;
+}
+
+.editor-chip-row {
+  flex-direction: row;
+  flex-wrap: wrap;
+}
+
+.editor-chip {
+  padding: 10px 18px;
+  margin-right: 12px;
+  margin-bottom: 10px;
+  border-radius: 20px;
+  background-color: @page-bg;
+  color: @text-primary;
+  font-size: 22px;
+}
+
+.editor-chip-active {
+  background-color: fade(@brand-primary, 12%);
+  color: @brand-primary;
+}
+
+.editor-export-mask {
+  position: fixed;
+  left: 0;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.72);
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+}
+
+.editor-export-text {
+  font-size: 30px;
+  color: @white;
+  font-weight: bold;
+}
+
+.editor-export-cancel {
+  margin-top: 16px;
+  font-size: 26px;
+  color: @white;
+}
+
+.editor-bgm-row {
+  margin-top: 12px;
+}
+
+.web-panel-title {
+  font-size: 28px;
+  font-weight: bold;
+  color: @text-primary;
+  margin-bottom: 12px;
+}
+
+.editor-sticker-grid {
+  flex-direction: row;
+  flex-wrap: wrap;
+}
+
+.editor-sticker-pick {
+  width: 88px;
+  height: 88px;
+  margin-right: 12px;
+  margin-bottom: 12px;
+  border-radius: 12px;
+  background-color: @page-bg;
+  font-size: 40px;
+  text-align: center;
+  padding-top: 16px;
+}
+
+.sticker-hint {
+  margin-bottom: 12px;
+}
+
+.sticker-remove {
+  margin-top: 12px;
+}
+
+.editor-export-progress-track {
+  width: 480px;
+  height: 8px;
+  border-radius: 4px;
+  background-color: rgba(255, 255, 255, 0.25);
+  margin-top: 20px;
+}
+
+.editor-export-progress-bar {
+  height: 8px;
+  border-radius: 4px;
+  background-color: @white;
+}
+</style>

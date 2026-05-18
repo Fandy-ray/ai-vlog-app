@@ -11,11 +11,12 @@ import { formatTime } from '@/utils/formatTime'
 import { generateWaveform } from '@/utils/waveform'
 import { Waveform } from './Waveform'
 
-const RULER_MARKS = [20, 30, 40]
 const AUDIO_WAVE = generateWaveform(120, 2)
 const MUSIC_WAVE = generateWaveform(120, 5)
 
 interface TimelineProps {
+  clips?: VideoClip[]
+  highlightAt?: number
   currentTime: number
   duration: number
   keepOriginalAudio?: boolean
@@ -30,6 +31,8 @@ function isClipActive(clip: VideoClip, time: number) {
 }
 
 export function Timeline({
+  clips = VIDEO_CLIPS,
+  highlightAt = HIGHLIGHT_AT,
   currentTime,
   duration,
   keepOriginalAudio = true,
@@ -41,7 +44,10 @@ export function Timeline({
   const bgmLabel = formatBgmLabel(bgmId ?? null)
   const trackRef = useRef<HTMLDivElement>(null)
   const playheadPct = (currentTime / duration) * 100
-  const highlightPct = (HIGHLIGHT_AT / duration) * 100
+  const highlightPct = (highlightAt / duration) * 100
+  const rulerMarks = [0.2, 0.35, 0.5].map((ratio) =>
+    Math.round(duration * ratio),
+  )
 
   const seekFromEvent = useCallback(
     (clientX: number) => {
@@ -79,7 +85,7 @@ export function Timeline({
       >
         {/* 时间刻度 */}
         <header className="relative flex h-6 shrink-0 items-end border-b border-border/60 px-2 pb-0.5">
-          {RULER_MARKS.map((sec) => (
+          {rulerMarks.map((sec) => (
             <span
               key={sec}
               className="absolute bottom-0.5 -translate-x-1/2 text-[10px] tabular-nums text-text-muted"
@@ -93,7 +99,7 @@ export function Timeline({
         {/* 视频轨道 */}
         <section className="relative shrink-0 px-1 py-1.5">
           <ul className="flex h-14 gap-0.5 overflow-hidden rounded-lg">
-            {VIDEO_CLIPS.map((clip) => {
+            {clips.map((clip) => {
               const active = isClipActive(clip, currentTime)
               return (
                 <li

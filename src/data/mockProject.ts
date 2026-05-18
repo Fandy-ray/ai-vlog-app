@@ -8,6 +8,8 @@ export interface VideoClip {
   duration: number
   thumb: string
   poster: string
+  /** 本地导入视频的 blob URL */
+  videoSrc?: string
 }
 
 export const VIDEO_CLIPS: VideoClip[] = [
@@ -49,12 +51,16 @@ export const VIDEO_CLIPS: VideoClip[] = [
 ]
 
 /** 根据播放时间定位所在片段 */
-export function getClipAtTime(time: number): VideoClip {
-  const t = Math.max(0, Math.min(time, PROJECT_DURATION - 0.001))
-  for (let i = VIDEO_CLIPS.length - 1; i >= 0; i--) {
-    if (t >= VIDEO_CLIPS[i].start) return VIDEO_CLIPS[i]
+export function getClipAtTime(
+  time: number,
+  clips: VideoClip[] = VIDEO_CLIPS,
+  totalDuration: number = PROJECT_DURATION,
+): VideoClip {
+  const t = Math.max(0, Math.min(time, totalDuration - 0.001))
+  for (let i = clips.length - 1; i >= 0; i--) {
+    if (t >= clips[i].start) return clips[i]
   }
-  return VIDEO_CLIPS[0]
+  return clips[0]
 }
 
 export const HIGHLIGHT_AT = 52 // seconds — 高光时刻

@@ -45,6 +45,14 @@ export interface EditorSnapshot {
   keepOriginalAudio: boolean
   /** 所选网络配乐 id，null 表示无配乐 */
   bgmId: string | null
+  /** AI 旁白文稿 */
+  narrationText: string | null
+  /** vivo TTS 发音人 vcn */
+  narrationVoice: string
+  /** vivo TTS engineid */
+  narrationEngineId: string
+  /** 是否将旁白混入导出 */
+  narrationEnabled: boolean
 }
 
 export const INITIAL_EDITOR_SNAPSHOT: EditorSnapshot = {
@@ -56,4 +64,8 @@ export const INITIAL_EDITOR_SNAPSHOT: EditorSnapshot = {
   stickerOverlays: [],
   keepOriginalAudio: true,
   bgmId: 'sunny-day',
+  narrationText: null,
+  narrationVoice: 'yige',
+  narrationEngineId: 'short_audio_synthesis_jovi',
+  narrationEnabled: false,
 }

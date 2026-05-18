@@ -1,4 +1,5 @@
 import { Maximize2, Pause, Play } from 'lucide-react'
+import { useEffect, useRef } from 'react'
 import { EffectOverlay } from '@/components/editor/EffectOverlay'
 import { FilteredMedia } from '@/components/editor/FilteredMedia'
 import { VideoStickerOverlay } from '@/components/editor/VideoStickerOverlay'
@@ -13,6 +14,9 @@ export interface StickerPreviewItem {
 
 interface VideoPreviewProps {
   poster: string
+  videoSrc?: string
+  /** 当前片段内的播放时间 */
+  clipTime?: number
   currentTime: number
   duration: number
   isPlaying: boolean
@@ -35,6 +39,8 @@ interface VideoPreviewProps {
 
 export function VideoPreview({
   poster,
+  videoSrc,
+  clipTime = 0,
   currentTime,
   duration,
   isPlaying,
@@ -53,7 +59,30 @@ export function VideoPreview({
   onTogglePlay,
   onSeek,
 }: VideoPreviewProps) {
+  const videoRef = useRef<HTMLVideoElement>(null)
   const progress = duration > 0 ? currentTime / duration : 0
+
+  useEffect(() => {
+    const video = videoRef.current
+    if (!video || !videoSrc) return
+
+    if (Math.abs(video.currentTime - clipTime) > 0.25) {
+      video.currentTime = clipTime
+    }
+  }, [clipTime, videoSrc])
+
+  useEffect(() => {
+    const video = videoRef.current
+    if (!video || !videoSrc) return
+
+    if (isPlaying) {
+      void video.play().catch(() => {
+        video.pause()
+      })
+    } else {
+      video.pause()
+    }
+  }, [isPlaying, videoSrc])
 
   const handleProgressClick = (e: React.MouseEvent<HTMLDivElement>) => {
     const rect = e.currentTarget.getBoundingClientRect()
@@ -70,9 +99,11 @@ export function VideoPreview({
           role="presentation"
         >
           <FilteredMedia
-            key={poster}
+            key={videoSrc || poster}
             src={poster}
             alt="视频预览"
+            videoSrc={videoSrc}
+            videoRef={videoRef}
             filterCss={filterCss}
             intensity={filterIntensity}
             className="h-full w-full transition-opacity duration-200"

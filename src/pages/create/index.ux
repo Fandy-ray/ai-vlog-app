@@ -1,0 +1,196 @@
+<import name="c-button" src="../../components/Button/index.ux"></import>
+
+<template>
+  <div class="web-page-with-nav">
+    <list class="web-create-list">
+      <list-item type="header" class="web-sticky-header">
+        <text class="web-back-btn" onclick="goBack">‹</text>
+        <div class="web-sticky-header-center">
+          <text class="web-header-title">导入素材</text>
+          <text class="web-header-sub">从本机选择视频，再进入智能剪辑</text>
+        </div>
+        <text class="web-back-btn" style="opacity: 0;">‹</text>
+      </list-item>
+
+      <list-item type="upload" class="web-page-body-item">
+        <div class="web-upload-zone" onclick="pickVideos">
+          <text class="web-upload-icon" if="{{ !loading }}">↑</text>
+          <text class="web-upload-icon" if="{{ loading }}">…</text>
+          <text class="web-upload-title">{{ loading ? '正在读取视频…' : '点击选择视频' }}</text>
+          <text class="web-upload-hint">支持多选 · mp4 / mov 等</text>
+        </div>
+      </list-item>
+
+      <list-item type="summary" class="web-page-body-item" if="{{ items.length }}">
+        <div class="web-section-head">
+          <text class="web-section-title">已导入 {{ items.length }} 个 · {{ totalDurationLabel }}</text>
+          <text class="web-section-link" onclick="pickVideos">＋ 继续添加</text>
+        </div>
+      </list-item>
+
+      <list-item type="item" class="web-page-body-item" for="{{ (index, item) in items }}">
+        <div class="web-import-row">
+          <image class="web-import-thumb" src="{{ item.thumb || item.uri }}"></image>
+          <div class="web-import-main">
+            <text class="web-import-name">{{ index + 1 }}. {{ item.name }}</text>
+            <text class="web-import-meta">本地视频 · {{ item.durationLabel }}</text>
+          </div>
+          <text class="web-import-remove" onclick="removeItem" data-id="{{ item.id }}">×</text>
+        </div>
+      </list-item>
+
+      <list-item type="hint" class="web-page-body-item" if="{{ !items.length && !loading }}">
+        <text class="web-upload-hint" style="text-align: center; margin-bottom: 24px;">
+          导入的视频将按顺序拼接在时间轴上，可在剪辑页预览与编辑。
+        </text>
+      </list-item>
+
+      <list-item type="action" class="web-page-body-item create-actions">
+        <c-button
+          text="开始智能剪辑"
+          variant="primary"
+          disabled="{{ !items.length || loading }}"
+          onclick="startEdit"
+        ></c-button>
+        <c-button
+          text="使用演示素材体验"
+          variant="soft"
+          disabled="{{ loading }}"
+          onclick="useDemoClips"
+        ></c-button>
+      </list-item>
+
+      <list-item type="spacer" class="web-spacer-small"></list-item>
+    </list>
+  </div>
+</template>
+
+<script>
+import media from '@system.media'
+import $routes from '../../helper/routes'
+import { formatTime } from '../../helper/formatTime'
+import $utils from '../../helper/utils'
+import { PROJECT_DURATION, VIDEO_CLIPS } from '../../helper/data/mockProject'
+
+function filenameFromUri(uri = '', index = 0) {
+  const parts = uri.split('/')
+  return parts[parts.length - 1] || `视频${index + 1}.mp4`
+}
+
+export default {
+  private: {
+    loading: false,
+    items: [],
+    totalDurationLabel: '00:00'
+  },
+
+  onInit() {
+    this.refreshDuration()
+  },
+
+  refreshDuration() {
+    const total = this.items.reduce((sum, item) => sum + (item.duration || 0), 0)
+    this.totalDurationLabel = formatTime(total)
+  },
+
+  goBack() {
+    $routes.back()
+  },
+
+  pickVideos() {
+    if (this.loading) {
+      return
+    }
+
+    const success = res => {
+      const uris = res.uris || (res.uri ? [res.uri] : [])
+      this.handlePicked(uris)
+    }
+    const fail = () => {
+      $utils.showToast('选取视频失败，请检查相册权限')
+    }
+
+    try {
+      if (media.pickVideos) {
+        media.pickVideos({ success, fail })
+      } else {
+        media.pickVideo({ success, fail })
+      }
+    } catch (error) {
+      fail(error)
+    }
+  },
+
+  handlePicked(uris = []) {
+    if (!uris.length) {
+      return
+    }
+
+    this.loading = true
+    const base = Date.now()
+    const imported = uris.map((uri, index) => ({
+      id: `import-${base}-${index}`,
+      name: filenameFromUri(uri, index),
+      uri,
+      thumb: uri,
+      duration: 8,
+      durationLabel: formatTime(8)
+    }))
+
+    this.items = this.items.concat(imported)
+    this.refreshDuration()
+    this.loading = false
+    $utils.showToast(`已导入 ${imported.length} 个视频`)
+  },
+
+  removeItem(evt) {
+    const id = evt.target.attr.id
+    this.items = this.items.filter(item => item.id !== id)
+    this.refreshDuration()
+  },
+
+  startEdit() {
+    if (!this.items.length) {
+      $utils.showToast('请先导入至少一个视频')
+      return
+    }
+
+    $editorStore.resetEditorSession()
+    $editorStore.setEditorProject($editorStore.buildClipsFromImports(this.items))
+    $routes.push('editor')
+  },
+
+  useDemoClips() {
+    $editorStore.resetEditorSession()
+    $editorStore.setEditorProject({
+      clips: VIDEO_CLIPS,
+      duration: PROJECT_DURATION
+    })
+    $utils.showToast('已加载演示素材，可体验滤镜/文字/贴纸')
+    $routes.push('editor')
+  }
+}
+</script>
+
+<style lang="less">
+@import './../../assets/styles/style.less';
+
+.web-create-list {
+  flex: 1;
+  width: 100%;
+  background-color: @page-bg;
+}
+
+.web-page-body-item {
+  width: 100%;
+  padding: 0 @page-padding;
+}
+
+.web-spacer-small {
+  height: 48px;
+}
+
+.create-actions {
+  flex-direction: column;
+}
+</style>

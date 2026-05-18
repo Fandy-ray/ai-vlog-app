@@ -1,0 +1,543 @@
+@import './variables.less';
+
+.web-header {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  padding: 24px @page-padding 20px @page-padding;
+  background-color: fade(@page-bg, 92%);
+}
+
+.web-brand-row {
+  flex-direction: row;
+  align-items: center;
+}
+
+.web-brand-icon {
+  width: 64px;
+  height: 64px;
+  border-radius: 24px;
+  background-color: fade(@brand-primary, 10%);
+  color: @brand-primary;
+  font-size: 32px;
+  text-align: center;
+  padding-top: 10px;
+  margin-right: 16px;
+}
+
+.web-brand-title {
+  font-size: 36px;
+  font-weight: bold;
+  color: @text-primary;
+}
+
+.web-icon-btn {
+  width: 72px;
+  height: 72px;
+  border-radius: 36px;
+  text-align: center;
+  font-size: 36px;
+  color: @text-secondary;
+  padding-top: 12px;
+}
+
+.web-scroll {
+  flex: 1;
+  flex-direction: column;
+  padding: 0 @page-padding @bottom-nav-height @page-padding;
+}
+
+.web-hero-stack {
+  width: 100%;
+  height: 386px;
+  border-radius: @radius-xl;
+  overflow: hidden;
+}
+
+.web-hero {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.web-hero-mask {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 65%;
+  background: linear-gradient(to top, fade(@brand-primary, 82%), fade(@brand-primary, 30%), transparent);
+}
+
+.web-hero-content {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 40px;
+  flex-direction: column;
+}
+
+.web-hero-badge {
+  align-self: flex-start;
+  padding: 8px 20px;
+  border-radius: 40px;
+  background-color: rgba(255, 255, 255, 0.2);
+  color: @white;
+  font-size: 20px;
+  margin-bottom: 16px;
+}
+
+.web-hero-title {
+  font-size: 40px;
+  font-weight: bold;
+  color: @white;
+}
+
+.web-hero-sub {
+  font-size: 28px;
+  color: rgba(255, 255, 255, 0.85);
+  margin-top: 8px;
+}
+
+.web-learn-card {
+  flex-direction: row;
+  align-items: center;
+  min-height: 152px;
+  padding: 36px 32px;
+  border-radius: @radius-xl;
+  background-color: @surface;
+}
+
+.web-learn-icon {
+  width: 96px;
+  height: 96px;
+  border-radius: 24px;
+  background-color: fade(@brand-accent, 15%);
+  color: @brand-accent;
+  font-size: 44px;
+  text-align: center;
+  padding-top: 20px;
+  margin-right: 24px;
+}
+
+.web-learn-main {
+  flex: 1;
+  flex-direction: column;
+}
+
+.web-learn-title-row {
+  flex-direction: row;
+  align-items: center;
+}
+
+.web-learn-title {
+  font-size: 28px;
+  font-weight: bold;
+  color: @text-primary;
+}
+
+.web-learn-tag {
+  margin-left: 12px;
+  padding: 4px 12px;
+  border-radius: 20px;
+  background-color: fade(@brand-primary, 10%);
+  color: @brand-primary;
+  font-size: 18px;
+}
+
+.web-learn-desc {
+  font-size: 24px;
+  color: @text-muted;
+  margin-top: 4px;
+}
+
+.web-learn-arrow {
+  font-size: 32px;
+  color: @text-muted;
+  padding-left: 8px;
+}
+
+.web-section-head {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+}
+
+.web-section-title {
+  font-size: 32px;
+  font-weight: bold;
+  color: @text-primary;
+  flex: 1;
+}
+
+.web-section-link {
+  font-size: 24px;
+  color: @text-muted;
+  text-align: right;
+  padding-left: 16px;
+}
+
+.web-memory-grid {
+  flex-direction: row;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-content: flex-start;
+  width: 100%;
+}
+
+.web-flow-card {
+  padding: 24px;
+  border-radius: @radius-lg;
+  background-color: @surface;
+  margin-top: 20px;
+  margin-bottom: 24px;
+  border-width: 1px;
+  border-color: @border-subtle;
+}
+
+.web-flow-title {
+  font-size: 28px;
+  font-weight: bold;
+  color: @text-primary;
+  margin-bottom: 8px;
+}
+
+.web-flow-desc {
+  font-size: 22px;
+  color: @text-muted;
+  margin-bottom: 16px;
+}
+
+.web-flow-actions {
+  flex-direction: row;
+  flex-wrap: wrap;
+}
+
+.web-flow-chip {
+  padding: 10px 18px;
+  margin-right: 12px;
+  margin-bottom: 10px;
+  border-radius: 20px;
+  background-color: fade(@brand-primary, 10%);
+  color: @brand-primary;
+  font-size: 22px;
+}
+
+.web-page-with-nav {
+  flex-direction: column;
+  flex: 1;
+  background-color: @page-bg;
+}
+
+.web-page-body {
+  flex: 1;
+  flex-direction: column;
+  padding: 0 @page-padding 24px @page-padding;
+}
+
+.web-sticky-header {
+  flex-direction: row;
+  align-items: center;
+  padding: 20px @page-padding 16px @page-padding;
+  background-color: fade(@page-bg, 92%);
+}
+
+.web-sticky-header-center {
+  flex: 1;
+  text-align: center;
+}
+
+.web-back-btn {
+  width: 64px;
+  height: 64px;
+  border-radius: 32px;
+  text-align: center;
+  font-size: 36px;
+  color: @text-secondary;
+  padding-top: 8px;
+}
+
+.web-header-title {
+  font-size: 34px;
+  font-weight: bold;
+  color: @text-primary;
+}
+
+.web-header-sub {
+  font-size: 22px;
+  color: @text-muted;
+  margin-top: 4px;
+}
+
+.web-upload-zone {
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 32px;
+  margin-bottom: 24px;
+  border-radius: @radius-xl;
+  border-width: 2px;
+  border-style: dashed;
+  border-color: fade(@brand-primary, 35%);
+  background-color: @surface;
+}
+
+.web-upload-icon {
+  width: 96px;
+  height: 96px;
+  border-radius: 20px;
+  background-color: fade(@brand-primary, 10%);
+  color: @brand-primary;
+  font-size: 44px;
+  text-align: center;
+  padding-top: 18px;
+  margin-bottom: 16px;
+}
+
+.web-upload-title {
+  font-size: 30px;
+  font-weight: bold;
+  color: @text-primary;
+}
+
+.web-upload-hint {
+  font-size: 24px;
+  color: @text-muted;
+  margin-top: 8px;
+  text-align: center;
+}
+
+.web-import-row {
+  flex-direction: row;
+  align-items: center;
+  padding: 20px;
+  margin-bottom: 16px;
+  border-radius: @radius-lg;
+  background-color: @surface;
+}
+
+.web-import-thumb {
+  width: 160px;
+  height: 108px;
+  border-radius: 12px;
+  margin-right: 20px;
+  object-fit: cover;
+}
+
+.web-import-main {
+  flex: 1;
+  flex-direction: column;
+}
+
+.web-import-name {
+  font-size: 26px;
+  font-weight: bold;
+  color: @text-primary;
+  lines: 1;
+  text-overflow: ellipsis;
+}
+
+.web-import-meta {
+  font-size: 22px;
+  color: @text-muted;
+  margin-top: 6px;
+}
+
+.web-import-remove {
+  width: 56px;
+  height: 56px;
+  text-align: center;
+  font-size: 28px;
+  color: @text-muted;
+  padding-top: 8px;
+}
+
+.web-vlog-tip-card {
+  flex-direction: row;
+  padding: 24px;
+  border-radius: @radius-xl;
+  background: linear-gradient(135deg, fade(@brand-primary, 10%), @surface, fade(@brand-accent, 10%));
+  margin-bottom: 24px;
+}
+
+.web-scene-row {
+  flex-direction: row;
+  padding: 0 @page-padding 12px @page-padding;
+}
+
+.web-scene-chip {
+  width: 296px;
+  height: 160px;
+  padding: 20px;
+  margin-right: 16px;
+  border-radius: @radius-lg;
+  background-color: @surface;
+  border-width: 1px;
+  border-color: @border-subtle;
+  flex-direction: column;
+  flex-shrink: 0;
+}
+
+.web-scene-chip-active {
+  background-color: @brand-primary;
+  border-color: @brand-primary;
+}
+
+.web-scene-chip-title {
+  font-size: 26px;
+  font-weight: bold;
+  color: @text-primary;
+}
+
+.web-scene-chip-active .web-scene-chip-title {
+  color: @white;
+}
+
+.web-scene-chip-sub {
+  font-size: 20px;
+  color: @text-muted;
+  margin-top: 8px;
+  lines: 2;
+  text-overflow: ellipsis;
+}
+
+.web-scene-chip-active .web-scene-chip-sub {
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.web-detail-card {
+  padding: 24px;
+  margin: 0 @page-padding 24px @page-padding;
+  border-radius: @radius-xl;
+  background-color: @surface;
+}
+
+.web-editor-preview {
+  width: 100%;
+  height: 420px;
+  background-color: #111111;
+}
+
+.web-editor-overlay {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  bottom: 0;
+}
+
+.web-editor-text {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 80px;
+  text-align: center;
+  font-size: 36px;
+  font-weight: bold;
+  color: @white;
+}
+
+.web-editor-toolbar {
+  flex-direction: row;
+  justify-content: space-around;
+  padding: 16px 8px;
+  background-color: fade(@surface, 96%);
+  border-top-width: 1px;
+  border-top-color: @border-subtle;
+}
+
+.web-editor-tool {
+  flex-direction: column;
+  align-items: center;
+  width: 100px;
+}
+
+.web-editor-tool-icon {
+  font-size: 32px;
+  color: @text-secondary;
+  margin-bottom: 4px;
+}
+
+.web-editor-tool-active .web-editor-tool-icon {
+  color: @brand-primary;
+}
+
+.web-editor-tool-label {
+  font-size: 20px;
+  color: @text-muted;
+}
+
+.web-editor-tool-active .web-editor-tool-label {
+  color: @brand-primary;
+  font-weight: bold;
+}
+
+.web-panel {
+  padding: 20px @page-padding 28px @page-padding;
+  background-color: @surface;
+  border-top-width: 1px;
+  border-top-color: @border-subtle;
+}
+
+.web-panel-actions {
+  flex-direction: row;
+  justify-content: flex-end;
+  margin-top: 16px;
+}
+
+.web-panel-btn {
+  padding: 12px 24px;
+  margin-left: 16px;
+  border-radius: 24px;
+  font-size: 24px;
+  color: @text-muted;
+}
+
+.web-panel-btn-primary {
+  background-color: @brand-primary;
+  color: @white;
+}
+
+.web-timeline {
+  flex-direction: row;
+  padding: 12px @page-padding;
+  background-color: @surface;
+}
+
+.web-timeline-clip {
+  width: 120px;
+  height: 72px;
+  margin-right: 12px;
+  border-radius: 8px;
+  border-width: 2px;
+  border-color: transparent;
+}
+
+.web-timeline-clip-active {
+  border-color: @brand-primary;
+}
+
+.web-complete-player {
+  width: 100%;
+  height: 400px;
+  border-radius: @radius-xl;
+  overflow: hidden;
+}
+
+.web-complete-actions {
+  flex-direction: row;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  margin-bottom: 24px;
+}
+
+.web-complete-actions .c-btn-root {
+  width: 48%;
+}
+
+.web-recommend-scroll {
+  flex-direction: row;
+  padding: 0 @page-padding 24px @page-padding;
+}

@@ -5,6 +5,7 @@ import { UndoRedoButtons } from './UndoRedoButtons'
 interface TopBarProps {
   title: string
   isEditingTitle: boolean
+  exporting?: boolean
   canUndo: boolean
   canRedo: boolean
   onBack: () => void
@@ -18,6 +19,7 @@ interface TopBarProps {
 export function TopBar({
   title,
   isEditingTitle,
+  exporting = false,
   canUndo,
   canRedo,
   onBack,
@@ -69,8 +71,14 @@ export function TopBar({
         </button>
       </section>
 
-      <Button variant="primary" size="sm" onClick={onExport} className="shrink-0">
-        导出
+      <Button
+        variant="primary"
+        size="sm"
+        onClick={onExport}
+        disabled={exporting}
+        className="shrink-0"
+      >
+        {exporting ? '导出中…' : '导出'}
       </Button>
     </header>
   )

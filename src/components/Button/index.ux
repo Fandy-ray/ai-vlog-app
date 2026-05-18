@@ -84,6 +84,23 @@ export default {
   color: @brand-primary;
 }
 
+.c-btn-outline {
+  background-color: @surface;
+  color: @text-primary;
+  border-width: 1px;
+  border-color: @border-subtle;
+}
+
+.c-btn-accent {
+  background-color: @brand-accent;
+  color: @white;
+}
+
+.c-btn-soft {
+  background-color: fade(@brand-primary, 10%);
+  color: @brand-primary;
+}
+
 .c-btn-danger {
   background-color: #c45c4a;
   color: @white;
