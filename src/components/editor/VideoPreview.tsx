@@ -1,7 +1,11 @@
 import { Maximize2, Pause, Play } from 'lucide-react'
-import { useEffect, useRef } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { ClipTransformLayer } from '@/components/editor/ClipTransformLayer'
+import { VideoCropOverlay } from '@/components/editor/VideoCropOverlay'
+import type { NormalizedCrop } from '@/types/clipTransform'
 import { EffectOverlay } from '@/components/editor/EffectOverlay'
 import { FilteredMedia } from '@/components/editor/FilteredMedia'
+import type { ClipTransform } from '@/types/clipTransform'
 import { VideoStickerOverlay } from '@/components/editor/VideoStickerOverlay'
 import { VideoTextOverlay } from '@/components/editor/VideoTextOverlay'
 import type { StickerOverlay, TextOverlay } from '@/types/editorState'
@@ -15,6 +19,7 @@ export interface StickerPreviewItem {
 interface VideoPreviewProps {
   poster: string
   videoSrc?: string
+  clipTransform?: ClipTransform
   /** 当前片段内的播放时间 */
   clipTime?: number
   currentTime: number
@@ -35,11 +40,17 @@ interface VideoPreviewProps {
   onPreviewBackgroundClick?: () => void
   onTogglePlay: () => void
   onSeek: (ratio: number) => void
+  isCropMode?: boolean
+  cropDraft?: NormalizedCrop
+  onCropChange?: (crop: NormalizedCrop) => void
+  onCropConfirm?: () => void
+  onCropCancel?: () => void
 }
 
 export function VideoPreview({
   poster,
   videoSrc,
+  clipTransform,
   clipTime = 0,
   currentTime,
   duration,
@@ -58,18 +69,50 @@ export function VideoPreview({
   onPreviewBackgroundClick,
   onTogglePlay,
   onSeek,
+  isCropMode = false,
+  cropDraft,
+  onCropChange,
+  onCropConfirm,
+  onCropCancel,
 }: VideoPreviewProps) {
   const videoRef = useRef<HTMLVideoElement>(null)
+  const [sourceAspect, setSourceAspect] = useState(16 / 9)
   const progress = duration > 0 ? currentTime / duration : 0
+
+  const syncSourceAspect = useCallback(() => {
+    const video = videoRef.current
+    if (video?.videoWidth && video.videoHeight) {
+      setSourceAspect(video.videoWidth / video.videoHeight)
+      return
+    }
+    if (!poster) return
+    const img = new Image()
+    img.onload = () => {
+      if (img.naturalWidth && img.naturalHeight) {
+        setSourceAspect(img.naturalWidth / img.naturalHeight)
+      }
+    }
+    img.src = poster
+  }, [poster])
 
   useEffect(() => {
     const video = videoRef.current
     if (!video || !videoSrc) return
 
+    const onMeta = () => syncSourceAspect()
+    video.addEventListener('loadedmetadata', onMeta)
+    onMeta()
+
     if (Math.abs(video.currentTime - clipTime) > 0.25) {
       video.currentTime = clipTime
     }
-  }, [clipTime, videoSrc])
+
+    return () => video.removeEventListener('loadedmetadata', onMeta)
+  }, [clipTime, syncSourceAspect, videoSrc])
+
+  useEffect(() => {
+    if (!videoSrc) syncSourceAspect()
+  }, [poster, syncSourceAspect, videoSrc])
 
   useEffect(() => {
     const video = videoRef.current
@@ -98,17 +141,32 @@ export function VideoPreview({
           onClick={() => onPreviewBackgroundClick?.()}
           role="presentation"
         >
-          <FilteredMedia
-            key={videoSrc || poster}
-            src={poster}
-            alt="视频预览"
-            videoSrc={videoSrc}
-            videoRef={videoRef}
-            filterCss={filterCss}
-            intensity={filterIntensity}
-            className="h-full w-full transition-opacity duration-200"
-          />
-          <EffectOverlay effectId={effectId} />
+          <ClipTransformLayer transform={clipTransform} sourceAspect={sourceAspect}>
+            <FilteredMedia
+              key={videoSrc || poster}
+              src={poster}
+              alt="视频预览"
+              videoSrc={videoSrc}
+              videoRef={videoRef}
+              filterCss={filterCss}
+              intensity={filterIntensity}
+              objectFit="contain"
+              className="h-full w-full transition-opacity duration-200"
+            />
+          </ClipTransformLayer>
+
+          {isCropMode && cropDraft && onCropChange && onCropConfirm && onCropCancel && (
+            <VideoCropOverlay
+              crop={cropDraft}
+              sourceAspect={sourceAspect}
+              rotation={clipTransform?.rotation ?? 0}
+              onChange={onCropChange}
+              onConfirm={onCropConfirm}
+              onCancel={onCropCancel}
+            />
+          )}
+
+          {!isCropMode && <EffectOverlay effectId={effectId} />}
 
           {textOverlay && (
             <VideoTextOverlay

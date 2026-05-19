@@ -7,6 +7,7 @@ interface FilteredMediaProps {
   /** 0–100，仅对非原图滤镜生效 */
   intensity?: number
   className?: string
+  objectFit?: 'cover' | 'contain'
   videoSrc?: string
   videoRef?: RefObject<HTMLVideoElement | null>
 }
@@ -18,12 +19,13 @@ export function FilteredMedia({
   filterCss = 'none',
   intensity = 100,
   className = '',
+  objectFit = 'cover',
   videoSrc,
   videoRef,
 }: FilteredMediaProps) {
   const opacity = Math.max(0, Math.min(100, intensity)) / 100
   const showFilter = filterCss !== 'none' && opacity > 0
-  const mediaClass = 'h-full w-full object-cover'
+  const mediaClass = `h-full w-full object-${objectFit}`
 
   return (
     <span className={`relative block overflow-hidden ${className}`}>

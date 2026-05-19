@@ -9,6 +9,7 @@ import { drawStickerFallback, loadStickerImage } from './stickerImage'
 import type { VideoClip } from '@/data/mockProject'
 import { getClipAtTime } from '@/data/mockProject'
 import type { EditorSnapshot } from '@/types/editorState'
+import { drawClipMedia } from '@/utils/drawClipMedia'
 import { drawEffectOverlay } from './effectsCanvas'
 
 export const EXPORT_WIDTH = 1280
@@ -243,7 +244,7 @@ export async function compositeFrameAt(
   const height = options.height ?? EXPORT_HEIGHT
   const t = Math.max(0, Math.min(globalTime, totalDuration - 0.001))
   const clip = getClipAtTime(t, clips, totalDuration)
-  const localTime = Math.max(0, t - clip.start)
+  const localTime = Math.max(0, (clip.sourceOffset ?? 0) + t - clip.start)
   const filterCss = getFilterCss(snapshot.filterId)
   const intensity = snapshot.filterIntensity
 
@@ -254,12 +255,26 @@ export async function compositeFrameAt(
   if (video) {
     const target = Math.min(localTime, Math.max(0, video.duration - 0.05))
     await seekVideoAccurate(video, target)
-    drawFilteredMedia(ctx, video, width, height, filterCss, intensity)
+    const mediaCanvas = document.createElement('canvas')
+    mediaCanvas.width = width
+    mediaCanvas.height = height
+    const mediaCtx = mediaCanvas.getContext('2d')
+    if (mediaCtx) {
+      drawClipMedia(mediaCtx, video, width, height, clip.transform)
+      drawFilteredMedia(ctx, mediaCanvas, width, height, filterCss, intensity)
+    }
   } else {
     const src = clip.poster || clip.thumb
     const img = src ? imageCache.get(src) : undefined
     if (img) {
-      drawFilteredMedia(ctx, img, width, height, filterCss, intensity)
+      const mediaCanvas = document.createElement('canvas')
+      mediaCanvas.width = width
+      mediaCanvas.height = height
+      const mediaCtx = mediaCanvas.getContext('2d')
+      if (mediaCtx) {
+        drawClipMedia(mediaCtx, img, width, height, clip.transform)
+        drawFilteredMedia(ctx, mediaCanvas, width, height, filterCss, intensity)
+      }
     }
   }
 

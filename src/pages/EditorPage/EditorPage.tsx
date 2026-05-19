@@ -12,7 +12,26 @@ import {
   setEditorSession,
 } from '@/state/editorSession'
 import { setExportedVideo } from '@/state/exportedVideo'
-import { getEditorProject, hasEditorProject } from '@/state/importedProject'
+import {
+  getEditorProject,
+  hasEditorProject,
+  updateEditorProject,
+} from '@/state/importedProject'
+import type { TimelineToolId } from '@/components/editor/TimelineToolbar'
+import { DEFAULT_CROP } from '@/types/clipTransform'
+import type { NormalizedCrop } from '@/types/clipTransform'
+import { normalizeCrop } from '@/utils/videoFit'
+import {
+  deleteClipAt,
+  rotateClip,
+  setClipCrop,
+  splitClipAt,
+  toggleClipMirror,
+} from '@/utils/clipOperations'
+import {
+  appendClipsFromImports,
+  probeVideoFile,
+} from '@/utils/videoImport'
 import { exportEditedVideo } from '@/utils/export/exportVideo'
 import { PageShell } from '@/components/PageShell'
 import { Toast } from '@/components/Toast'
@@ -54,10 +73,19 @@ loadEditorSessionFromStorage()
 
 export function EditorPage() {
   const navigate = useNavigate()
-  const imported = getEditorProject()
-  const clips = imported?.clips ?? VIDEO_CLIPS
-  const projectDuration = imported?.duration ?? PROJECT_DURATION
+  const initialProject = getEditorProject()
+  const [clips, setClips] = useState<VideoClip[]>(
+    () => initialProject?.clips ?? VIDEO_CLIPS,
+  )
+  const [projectDuration, setProjectDuration] = useState(
+    () => initialProject?.duration ?? PROJECT_DURATION,
+  )
   const highlightAt = Math.min(projectDuration * 0.54, projectDuration - 1)
+  const importInputRef = useRef<HTMLInputElement>(null)
+  const [importingVideos, setImportingVideos] = useState(false)
+  const [isCropMode, setIsCropMode] = useState(false)
+  const [draftCrop, setDraftCrop] = useState<NormalizedCrop>(DEFAULT_CROP)
+  const [cropClipId, setCropClipId] = useState<string | null>(null)
 
   useEffect(() => {
     if (!hasEditorProject()) {
@@ -190,7 +218,46 @@ export function EditorPage() {
     [currentTime, clips, projectDuration],
   )
 
-  const clipTime = Math.max(0, currentTime - activeClip.start)
+  const clipTime = Math.max(
+    0,
+    (activeClip.sourceOffset ?? 0) + currentTime - activeClip.start,
+  )
+
+  const previewClipTransform = useMemo(() => {
+    if (isCropMode && cropClipId === activeClip.id) {
+      return { ...activeClip.transform, crop: DEFAULT_CROP }
+    }
+    return activeClip.transform
+  }, [activeClip.id, activeClip.transform, cropClipId, isCropMode])
+
+  useEffect(() => {
+    if (isCropMode && cropClipId && cropClipId !== activeClip.id) {
+      setIsCropMode(false)
+      setCropClipId(null)
+    }
+  }, [activeClip.id, cropClipId, isCropMode])
+
+  const canSplitClip = useMemo(
+    () =>
+      clips.some(
+        (clip) =>
+          currentTime > clip.start + 0.35 &&
+          currentTime < clip.start + clip.duration - 0.35,
+      ),
+    [clips, currentTime],
+  )
+
+  const canDeleteClip = clips.length > 1
+
+  const applyClipsUpdate = useCallback(
+    (nextClips: VideoClip[], duration: number) => {
+      setClips(nextClips)
+      setProjectDuration(duration)
+      updateEditorProject({ clips: nextClips, duration })
+      if (currentTime > duration) seek(duration)
+    },
+    [currentTime, seek],
+  )
 
   const handleClipSelect = useCallback(
     (clip: VideoClip) => {
@@ -200,9 +267,128 @@ export function EditorPage() {
     [seek, setIsPlaying],
   )
 
+  const handleImportClick = useCallback(() => {
+    if (!importingVideos) importInputRef.current?.click()
+  }, [importingVideos])
+
+  const handleImportFiles = useCallback(
+    async (files: FileList | null) => {
+      if (!files?.length) return
+
+      setImportingVideos(true)
+      try {
+        const list = Array.from(files).filter((file) => file.type.startsWith('video/'))
+        if (!list.length) {
+          show('请选择视频文件（mp4、mov 等）')
+          return
+        }
+
+        const imported = await Promise.all(list.map((file) => probeVideoFile(file)))
+        const { clips: nextClips, duration } = appendClipsFromImports(clips, imported)
+
+        setClips(nextClips)
+        setProjectDuration(duration)
+        updateEditorProject({ clips: nextClips, duration })
+        show(`已添加 ${imported.length} 个视频片段`)
+      } catch {
+        show('读取视频失败，请换一个小一点的文件重试')
+      } finally {
+        setImportingVideos(false)
+        if (importInputRef.current) importInputRef.current.value = ''
+      }
+    },
+    [clips, show],
+  )
+
   const handleSeekRatio = (ratio: number) => {
     seek(ratio * projectDuration)
   }
+
+  const handleTimelineTool = useCallback(
+    (tool: TimelineToolId) => {
+      setIsPlaying(false)
+
+      if (tool === 'split') {
+        const result = splitClipAt(clips, currentTime)
+        if (!result) {
+          show('请将播放头移到片段中间再分割')
+          return
+        }
+        applyClipsUpdate(result.clips, result.duration)
+        show('已在播放头处分割片段')
+        return
+      }
+
+      if (tool === 'delete') {
+        const result = deleteClipAt(clips, currentTime)
+        if (!result) {
+          show('至少保留一个片段')
+          return
+        }
+        applyClipsUpdate(result.clips, result.duration)
+        show('已删除当前片段')
+        return
+      }
+
+      const clipId = activeClip.id
+
+      if (tool === 'mirror') {
+        const next = toggleClipMirror(clips, clipId)
+        const updated = next.find((c) => c.id === clipId)
+        setClips(next)
+        updateEditorProject({ clips: next, duration: projectDuration })
+        show(updated?.transform?.flipH ? '已水平镜像' : '已取消镜像')
+        return
+      }
+
+      if (tool === 'rotate') {
+        const next = rotateClip(clips, clipId)
+        const rotated = next.find((c) => c.id === clipId)
+        setClips(next)
+        updateEditorProject({ clips: next, duration: projectDuration })
+        show(`已旋转至 ${rotated?.transform?.rotation ?? 0}°`)
+        return
+      }
+
+      if (tool === 'crop') {
+        if (isCropMode && cropClipId === clipId) return
+        setDraftCrop(activeClip.transform?.crop ?? DEFAULT_CROP)
+        setCropClipId(clipId)
+        setIsCropMode(true)
+        setActiveTool('cut')
+        setActiveFeature(null)
+        show('拖动裁剪框选择保留区域')
+      }
+    },
+    [
+      activeClip.id,
+      activeClip.transform?.crop,
+      applyClipsUpdate,
+      clips,
+      cropClipId,
+      currentTime,
+      isCropMode,
+      projectDuration,
+      setIsPlaying,
+      show,
+    ],
+  )
+
+  const handleCropConfirm = useCallback(() => {
+    if (!cropClipId) return
+    const next = setClipCrop(clips, cropClipId, normalizeCrop(draftCrop))
+    setClips(next)
+    updateEditorProject({ clips: next, duration: projectDuration })
+    setIsCropMode(false)
+    setCropClipId(null)
+    show('裁剪已应用')
+  }, [cropClipId, clips, draftCrop, projectDuration, show])
+
+  const handleCropCancel = useCallback(() => {
+    setIsCropMode(false)
+    setCropClipId(null)
+    show('已取消裁剪')
+  }, [show])
 
   const closeAllPanels = useCallback(() => {
     setActiveTool('cut')
@@ -770,7 +956,13 @@ export function EditorPage() {
       <VideoPreview
         poster={activeClip.poster}
         videoSrc={activeClip.videoSrc}
+        clipTransform={previewClipTransform}
         clipTime={clipTime}
+        isCropMode={isCropMode}
+        cropDraft={draftCrop}
+        onCropChange={setDraftCrop}
+        onCropConfirm={handleCropConfirm}
+        onCropCancel={handleCropCancel}
         currentTime={currentTime}
         duration={projectDuration}
         isPlaying={isPlaying}
@@ -804,6 +996,15 @@ export function EditorPage() {
         }}
       />
 
+      <input
+        ref={importInputRef}
+        type="file"
+        accept="video/*"
+        multiple
+        className="hidden"
+        onChange={(e) => void handleImportFiles(e.target.files)}
+      />
+
       <Timeline
         clips={clips}
         highlightAt={highlightAt}
@@ -814,6 +1015,12 @@ export function EditorPage() {
         onSeek={seek}
         onClipSelect={handleClipSelect}
         onAudioClick={openAudioPanel}
+        onImportClick={handleImportClick}
+        importLoading={importingVideos}
+        onTool={handleTimelineTool}
+        canSplit={canSplitClip}
+        canDelete={canDeleteClip}
+        activeTool={isCropMode ? 'crop' : null}
       />
 
       {showEffectPanel && (

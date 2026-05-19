@@ -80,6 +80,41 @@ export async function probeVideoFile(file: File): Promise<ImportedVideoFile> {
   }
 }
 
+/** 在已有片段后追加导入的视频 */
+export function appendClipsFromImports(
+  existing: VideoClip[],
+  items: ImportedVideoFile[],
+): { clips: VideoClip[]; duration: number } {
+  if (!items.length) {
+    const duration = existing.length
+      ? existing[existing.length - 1].start + existing[existing.length - 1].duration
+      : 1
+    return { clips: existing, duration: Math.max(duration, 1) }
+  }
+
+  let start = existing.length
+    ? existing[existing.length - 1].start + existing[existing.length - 1].duration
+    : 0
+
+  const appended: VideoClip[] = items.map((item, index) => {
+    const clip: VideoClip = {
+      id: item.id || `append-${index}`,
+      start,
+      duration: item.duration,
+      thumb: item.thumb || item.objectUrl,
+      poster: item.thumb || item.objectUrl,
+      videoSrc: item.objectUrl,
+    }
+    start += item.duration
+    return clip
+  })
+
+  return {
+    clips: [...existing, ...appended],
+    duration: Math.max(start, 1),
+  }
+}
+
 export function buildClipsFromImports(items: ImportedVideoFile[]): {
   clips: VideoClip[]
   duration: number
