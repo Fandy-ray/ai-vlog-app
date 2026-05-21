@@ -1,0 +1,125 @@
+/** 导拍场景原型（九宫格构图），按主题组合成清单 */
+const ARCHETYPES = {
+  intro: {
+    title: '人物开场',
+    subtitle: '对着镜头介绍今天的内容',
+    subjectCells: [4],
+    accentCells: [6, 3],
+    gridSummary: '人物放在第 4 格（左中），视线朝向右侧留白；字幕可放在第 3、6 格区域。',
+    aiPrompt: '将人物置于画面左侧三分线（第 4 格），头部接近上三分之一线，右侧留出 1/3 空间用于字幕或 B-roll。',
+    steps: [
+      '手机竖屏持稳，与眼睛平齐或略低 10°',
+      '人物占画面高度约 1/2，不要顶满上沿',
+      '看镜头时身体略侧，给右侧留出「呼吸感」',
+      '连拍 3–5 秒，后期可接主题相关空镜转场',
+    ],
+  },
+  landscape: {
+    title: '环境空镜',
+    subtitle: '交代地点、氛围与空间层次',
+    subjectCells: [7, 8, 9],
+    accentCells: [1, 2, 3],
+    gridSummary: '地平线压在第 7–9 格上沿；天空占第 1–3 格，避免天空过少。',
+    aiPrompt: '地平线对齐下方三分之一线，主体景物落在 7–9 格；天空分布在 1–3 格。',
+    steps: [
+      '开启网格线，先找地平线再按快门',
+      '避免地平线切在正中间（第 5 格横线）',
+      '前景可增加层次（栏杆、树叶、路牌）',
+      '缓慢横移或上摇 5–8 秒，更有电影感',
+    ],
+  },
+  walk: {
+    title: '行走跟拍',
+    subtitle: '边走边聊、街景或走廊漫步',
+    subjectCells: [5, 8],
+    accentCells: [2],
+    gridSummary: '人物在 5、8 格略偏下；头顶保留第 2 格空间。',
+    aiPrompt: '人物居中略偏下（第 5、8 格），镜头与人物保持 1.5 米缓慢跟拍。',
+    steps: [
+      '双手握持肘部贴身体，保持画面稳定',
+      '人物走路方向朝向画面一侧，不要直冲镜头',
+      '背景线条尽量与网格线平行',
+      '每段 8–12 秒，后期可做轻微慢动作',
+    ],
+  },
+  food: {
+    title: '美食 / 物品特写',
+    subtitle: '餐桌、咖啡、手作或主题相关物件',
+    subjectCells: [5, 8],
+    accentCells: [2, 6],
+    gridSummary: '主体放在第 5 或 8 格正中偏下；手部动势可占 4 或 6 格。',
+    aiPrompt: '将主体中心对准第 5 格，侧光时阴影朝向 4 或 6 格。',
+    steps: [
+      '俯拍 45° 时主体对准第 5 格',
+      '靠近窗户侧光，避免手机阴影盖住主体',
+      '先对焦主体再构图，浅景深突出质感',
+      '插入 1–2 秒手部入镜更有生活感',
+    ],
+  },
+  dialogue: {
+    title: '互动对话',
+    subtitle: '与朋友同框或采访式交流',
+    subjectCells: [4, 6],
+    accentCells: [5],
+    gridSummary: '两人分别站在第 4、6 格；中间第 5 格留作对话空间。',
+    aiPrompt: '两位人物分别占据第 4、6 格，视线朝向第 5 格中心交流。',
+    steps: [
+      '镜头与两人距离 2–2.5 米，避免广角畸变',
+      '拍过肩镜头时，前景肩膀占 4 或 6 格一角即可',
+      '交替特写单人，剪辑时更有节奏',
+      '保留环境声，后期可压低做氛围',
+    ],
+  },
+  motion: {
+    title: '动态跟拍',
+    subtitle: '骑行、车内窗外或快节奏动作',
+    subjectCells: [3, 6],
+    accentCells: [1, 2],
+    gridSummary: '运动主体放在第 3 或 6 格，前进方向一侧留白。',
+    aiPrompt: '主体位于第 3 或 6 格，面朝左侧留白；引导线指向 1–2 格。',
+    steps: [
+      '主体前进方向一侧必须留白',
+      '利用道路、栏杆引导线增强纵深感',
+      '车内拍窗外时，窗框贴 4 或 6 格边缘作前景',
+      '高速运动可后期加轻微动态模糊',
+    ],
+  },
+  focus: {
+    title: '专注动作',
+    subtitle: '手部、屏幕、书写或操作特写',
+    subjectCells: [5, 8],
+    accentCells: [4],
+    gridSummary: '手部与主体占 5、8 格；桌面边缘可占 4 格增加现场感。',
+    aiPrompt: '对焦手部与主体，主体中心对准第 5 格，保留桌面一角。',
+    steps: [
+      '固定机位，避免抖动',
+      '动作从画面一侧进入，剪辑更顺',
+      '可连拍 2–3 段短动作按节奏切',
+      '保留按键、翻页等真实声音',
+    ],
+  },
+  outro: {
+    title: '收尾镜头',
+    subtitle: '总结今天、挥手告别或意境空镜',
+    subjectCells: [4],
+    accentCells: [1, 7],
+    gridSummary: '人物或主体在第 4 格；上方 1 格或下方 7 格留意境空间。',
+    aiPrompt: '收尾镜头情绪略慢，人物或景物占第 4 格，留出天空或地面呼吸感。',
+    steps: [
+      '语速放慢，表情自然',
+      '可接一张主题相关的空镜做结尾',
+      '连拍 4–6 秒方便后期配乐收尾',
+      '避免突然结束，留 1 秒静止画面',
+    ],
+  },
+}
+
+const TYPE_ARCHETYPE_IDS = {
+  study: ['intro', 'focus', 'landscape', 'walk', 'food', 'outro'],
+  travel: ['intro', 'landscape', 'walk', 'food', 'dialogue', 'motion'],
+  food: ['intro', 'food', 'landscape', 'focus', 'dialogue', 'outro'],
+  daily: ['intro', 'landscape', 'walk', 'food', 'focus', 'outro'],
+  campus: ['intro', 'landscape', 'walk', 'dialogue', 'focus', 'outro'],
+}
+
+module.exports = { ARCHETYPES, TYPE_ARCHETYPE_IDS }
