@@ -1,145 +1,123 @@
-<import name="c-navbar" src="../../components/Navbar/index.ux"></import>
-<import name="c-button" src="../../components/Button/index.ux"></import>
-<import name="c-card" src="../../components/Card/index.ux"></import>
+<import name="c-bottom-nav" src="../../components/BottomNav/index.ux"></import>
+<import name="c-memory-card" src="../../components/MemoryCard/index.ux"></import>
 
 <template>
-  <div class="page-shell">
-    <c-navbar
-      title="AI Vlog"
-      show-back="{{ navShowBack }}"
-      safe-top="{{ safeTop }}"
-    ></c-navbar>
-
-    <div class="page-body">
-      <c-card
-        title="说明"
-        subtitle="根据后端 Mock 串联：风格 → 拍摄指引 → 上传 → 生成 → 预览"
-      >
-        <text class="api-line">接口基址：{{ apiBase }}</text>
-      </c-card>
-
-      <c-card title="服务状态">
-        <div class="status {{ healthOk ? 'status-ok' : 'status-warn' }}">
-          <text class="status-dot">{{ healthOk ? '●' : '○' }}</text>
-          <text class="status-text">{{ healthText }}</text>
-        </div>
-      </c-card>
-
-      <c-card title="当前进度">
-        <div class="summary-row">
-          <text class="summary-label">当前类型</text>
-          <text class="summary-value">{{ selectedTypeName }}</text>
-        </div>
-        <div class="summary-row">
-          <text class="summary-label">视觉风格</text>
-          <text class="summary-value">{{ selectedStyleName }}</text>
-        </div>
-        <div class="summary-row summary-row-last">
-          <text class="summary-label">素材数量</text>
-          <text class="summary-value">{{ materialCount }} 个</text>
-        </div>
-      </c-card>
-
-      <div class="page-actions">
-        <c-button text="选择风格" variant="primary" onclick="goStyle"></c-button>
-        <c-button text="{{ shootButtonText }}" variant="default" onclick="goShoot"></c-button>
-        <c-button text="上传素材" variant="default" onclick="goUpload"></c-button>
-        <c-button text="生成 Vlog" variant="default" onclick="goGenerate"></c-button>
-        <c-button text="预览结果" variant="default" onclick="goPreview"></c-button>
-        <c-button text="重新健康检查" variant="ghost" onclick="checkHealth"></c-button>
+  <div class="web-page-with-nav">
+    <div class="web-header">
+      <div class="web-brand-row">
+        <text class="web-brand-icon">◎</text>
+        <text class="web-brand-title">忆眸</text>
       </div>
+      <text class="web-icon-btn" onclick="onSearch">⌕</text>
     </div>
+
+    <list class="web-home-scroll">
+      <list-item type="hero" class="home-block home-hero-block">
+        <stack class="web-hero-stack" onclick="goCreate">
+          <image class="web-hero" src="{{ heroCover }}"></image>
+          <div class="web-hero-mask"></div>
+          <div class="web-hero-content">
+            <text class="web-hero-badge">✦ AI 智能创作</text>
+            <text class="web-hero-title">开始智能创作</text>
+            <text class="web-hero-sub">让每一段旅途都成为电影</text>
+          </div>
+        </stack>
+      </list-item>
+
+      <list-item type="learn" class="home-block home-learn-block">
+        <div class="web-learn-card" onclick="goVlogLearn">
+          <text class="web-learn-icon">🎓</text>
+          <div class="web-learn-main">
+            <div class="web-learn-title-row">
+              <text class="web-learn-title">学习 Vlog</text>
+              <text class="web-learn-tag">AI 导拍</text>
+            </div>
+            <text class="web-learn-desc">九宫格构图 · 人物该放哪一格</text>
+          </div>
+          <text class="web-learn-arrow">›</text>
+        </div>
+      </list-item>
+
+      <list-item type="section" class="home-block home-section-block">
+        <div class="web-section-head">
+          <text class="web-section-title">回忆瞬间</text>
+          <text class="web-section-link" onclick="onViewAll">查看全部 ›</text>
+        </div>
+      </list-item>
+
+      <list-item type="memory" class="home-block home-memory-block">
+        <div class="web-memory-grid">
+          <block for="{{ (index, item) in memoryItems }}">
+            <c-memory-card item="{{ item }}" onclick="onMemoryClick"></c-memory-card>
+          </block>
+        </div>
+      </list-item>
+
+      <list-item type="spacer" class="home-spacer"></list-item>
+    </list>
+
+    <c-bottom-nav
+      active="home"
+      garden-badge="{{ 3 }}"
+      safe-bottom="{{ safeBottom }}"
+      onchange="onTabChange"
+    ></c-bottom-nav>
   </div>
 </template>
 
 <script>
 import $routes from '../../helper/routes'
-import vlogApi from '../../helper/apis/vlog'
-import store from '../../helper/store'
+import { HERO_COVER, MEMORY_ITEMS } from '../../helper/data/memories'
 import $utils from '../../helper/utils'
-
-function findName(list = [], key, value, fallback) {
-  const target = list.find(item => item[key] === value)
-  return target ? target.name : fallback
-}
 
 export default {
   private: {
-    safeTop: 0,
-    navShowBack: false,
-    apiBase: '',
-    healthOk: false,
-    healthText: '正在检查后端...',
-    selectedTypeName: '学习 vlog',
-    selectedStyleName: '学习 vlog',
-    materialCount: 0,
-    shootButtonText: '拍摄指引（需先选风格）'
+    safeBottom: 0,
+    heroCover: HERO_COVER,
+    memoryItems: MEMORY_ITEMS
   },
 
   onInit() {
-    const h = this.$page.statusBarHeight
-    this.safeTop = typeof h === 'number' ? h : 0
-    this.apiBase = vlogApi.getApiBase()
-    this.syncState()
-    this.checkHealth()
+    const inset = this.$page && this.$page.safeAreaInsets
+    this.safeBottom = inset && inset.bottom ? inset.bottom : 0
   },
 
-  onShow() {
-    this.syncState()
+  onShow() {},
+
+  onSearch() {
+    $utils.showToast('搜索功能开发中')
   },
 
-  syncState() {
-    const state = store.state
-    this.materialCount = state.materials.length
-    this.selectedTypeName = findName(state.types, 'type', state.type, '学习 vlog')
-    this.selectedStyleName = findName(state.styles, 'id', state.style, '学习 vlog')
-    this.shootButtonText = state.type ? '拍摄指引' : '拍摄指引（需先选风格）'
+  onViewAll() {
+    $utils.showToast('查看全部回忆')
   },
 
-  checkHealth() {
-    this.healthText = '正在检查后端...'
-
-    vlogApi
-      .health()
-      .then(result => {
-        this.healthOk = !!(result && result.ok)
-        this.healthText = result && result.message ? result.message : 'Memento backend is running'
-        store.setState({ health: result })
-      })
-      .catch(() => {
-        this.healthOk = false
-        this.healthText = '后端未连接，当前会自动使用本地 Mock'
-      })
+  goCreate() {
+    $routes.push('create')
   },
 
-  goStyle() {
-    $routes.push('style')
+  goVlogLearn() {
+    $routes.push('vlogLearn')
   },
 
-  goShoot() {
-    if (!store.state.type) {
-      $utils.showToast('请先选择风格')
+  onMemoryClick() {
+    $routes.push('create')
+  },
+
+  onTabChange(evt) {
+    const tab = evt.detail.tab
+
+    if (tab === 'create') {
+      $routes.push('create')
       return
     }
 
-    $routes.push('shoot')
-  },
-
-  goUpload() {
-    $routes.push('upload')
-  },
-
-  goGenerate() {
-    $routes.push('generate')
-  },
-
-  goPreview() {
-    if (!store.state.result) {
-      $utils.showToast('还没有生成结果')
+    if (tab === 'home') {
       return
     }
 
-    $routes.push('preview')
+    const label = tab === 'garden' ? '记忆花园' : '我的'
+    $utils.showToast(`${label}即将开放`)
   }
 }
 </script>
@@ -147,67 +125,38 @@ export default {
 <style lang="less">
 @import './../../assets/styles/style.less';
 
-.api-line {
-  font-size: 24px;
-  color: @text-muted;
-}
-
-.status {
-  flex-direction: row;
-  align-items: center;
-  padding: 16px 16px 16px 12px;
-  border-radius: @radius-sm;
-  background-color: #f3f5f4;
-}
-
-.status-ok {
-  border-left-width: 8px;
-  border-left-color: @brand-ok;
-}
-
-.status-warn {
-  border-left-width: 8px;
-  border-left-color: @brand-warn;
-}
-
-.status-ok .status-dot {
-  color: @brand-ok;
-}
-
-.status-warn .status-dot {
-  color: @brand-warn;
-}
-
-.status-dot {
-  width: 42px;
-  font-size: 28px;
-}
-
-.status-text {
+.web-home-scroll {
   flex: 1;
-  font-size: 30px;
-  color: #20242a;
+  width: 100%;
+  background-color: @page-bg;
 }
 
-.summary-row {
-  flex-direction: row;
-  justify-content: space-between;
-  padding: 18px 0;
-  border-bottom-width: 1px;
-  border-bottom-color: @border-subtle;
+.home-block {
+  width: 100%;
+  padding-left: @page-padding;
+  padding-right: @page-padding;
 }
 
-.summary-row-last {
-  border-bottom-width: 0;
+.home-hero-block {
+  margin-top: 8px;
+  margin-bottom: 24px;
 }
 
-.summary-label {
-  font-size: 26px;
-  color: @text-muted;
+.home-learn-block {
+  margin-bottom: 24px;
 }
 
-.summary-value {
-  font-size: 28px;
-  color: #1f2a32;
+.home-section-block {
+  margin-bottom: 16px;
+}
+
+.home-memory-block {
+  margin-bottom: 8px;
+  padding-left: @page-padding;
+  padding-right: @page-padding;
+}
+
+.home-spacer {
+  height: 24px;
 }
 </style>

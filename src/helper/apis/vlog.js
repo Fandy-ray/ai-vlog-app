@@ -232,5 +232,22 @@ export default {
       () => $ajax.post(apiUrl('/api/generate/mock'), data, { timeout: 30000 }),
       () => $ai.generateVlogAsync(data, 300)
     )
+  },
+
+  /** 导出用片段上传（与 export 路由配合，失败时仅登记本地 uri） */
+  uploadExportClip(file = {}) {
+    if (!file.uri) {
+      return Promise.resolve({ uri: '', local: true })
+    }
+
+    return uploadWithRequest(
+      {
+        uri: file.uri,
+        filename: file.filename || 'clip.mp4',
+        name: file.filename || 'clip.mp4',
+        category: 'video'
+      },
+      { type: 'export', category: 'video', index: file.index || 0, timeout: 60000 }
+    ).catch(() => ({ uri: file.uri, local: true }))
   }
 }

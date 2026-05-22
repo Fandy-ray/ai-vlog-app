@@ -1,4 +1,4 @@
-import { Star, VolumeX } from 'lucide-react'
+import { Plus, Star, VolumeX } from 'lucide-react'
 import { useCallback, useRef } from 'react'
 import { formatBgmLabel } from '@/data/audioLibrary'
 import {
@@ -9,13 +9,15 @@ import {
 } from '@/data/mockProject'
 import { formatTime } from '@/utils/formatTime'
 import { generateWaveform } from '@/utils/waveform'
+import { TimelineToolbar, type TimelineToolId } from './TimelineToolbar'
 import { Waveform } from './Waveform'
 
-const RULER_MARKS = [20, 30, 40]
 const AUDIO_WAVE = generateWaveform(120, 2)
 const MUSIC_WAVE = generateWaveform(120, 5)
 
 interface TimelineProps {
+  clips?: VideoClip[]
+  highlightAt?: number
   currentTime: number
   duration: number
   keepOriginalAudio?: boolean
@@ -23,6 +25,12 @@ interface TimelineProps {
   onSeek: (time: number) => void
   onClipSelect?: (clip: VideoClip) => void
   onAudioClick?: () => void
+  onImportClick?: () => void
+  importLoading?: boolean
+  onTool?: (tool: TimelineToolId) => void
+  canSplit?: boolean
+  canDelete?: boolean
+  activeTool?: TimelineToolId | null
 }
 
 function isClipActive(clip: VideoClip, time: number) {
@@ -30,6 +38,8 @@ function isClipActive(clip: VideoClip, time: number) {
 }
 
 export function Timeline({
+  clips = VIDEO_CLIPS,
+  highlightAt = HIGHLIGHT_AT,
   currentTime,
   duration,
   keepOriginalAudio = true,
@@ -37,11 +47,20 @@ export function Timeline({
   onSeek,
   onClipSelect,
   onAudioClick,
+  onImportClick,
+  importLoading = false,
+  onTool,
+  canSplit = true,
+  canDelete = true,
+  activeTool = null,
 }: TimelineProps) {
   const bgmLabel = formatBgmLabel(bgmId ?? null)
   const trackRef = useRef<HTMLDivElement>(null)
   const playheadPct = (currentTime / duration) * 100
-  const highlightPct = (HIGHLIGHT_AT / duration) * 100
+  const highlightPct = (highlightAt / duration) * 100
+  const rulerMarks = [0.2, 0.35, 0.5].map((ratio) =>
+    Math.round(duration * ratio),
+  )
 
   const seekFromEvent = useCallback(
     (clientX: number) => {
@@ -72,6 +91,14 @@ export function Timeline({
 
   return (
     <section className="flex min-h-0 flex-1 flex-col overflow-hidden px-4 pb-2">
+      {onTool && (
+        <TimelineToolbar
+          onTool={onTool}
+          canSplit={canSplit}
+          canDelete={canDelete}
+          activeTool={activeTool}
+        />
+      )}
       <article
         ref={trackRef}
         className="relative flex min-h-0 flex-1 cursor-pointer flex-col overflow-hidden rounded-[var(--radius-lg)] bg-surface shadow-[var(--shadow-card)]"
@@ -79,7 +106,7 @@ export function Timeline({
       >
         {/* 时间刻度 */}
         <header className="relative flex h-6 shrink-0 items-end border-b border-border/60 px-2 pb-0.5">
-          {RULER_MARKS.map((sec) => (
+          {rulerMarks.map((sec) => (
             <span
               key={sec}
               className="absolute bottom-0.5 -translate-x-1/2 text-[10px] tabular-nums text-text-muted"
@@ -92,13 +119,13 @@ export function Timeline({
 
         {/* 视频轨道 */}
         <section className="relative shrink-0 px-1 py-1.5">
-          <ul className="flex h-14 gap-0.5 overflow-hidden rounded-lg">
-            {VIDEO_CLIPS.map((clip) => {
+          <ul className="flex h-14 gap-0.5 overflow-x-auto rounded-lg">
+            {clips.map((clip) => {
               const active = isClipActive(clip, currentTime)
               return (
                 <li
                   key={clip.id}
-                  className="h-full flex-1"
+                  className="h-full min-w-0 flex-1"
                   style={{ flex: clip.duration }}
                 >
                   <button
@@ -133,6 +160,25 @@ export function Timeline({
                 </li>
               )
             })}
+            <li className="h-full w-14 shrink-0">
+              <button
+                type="button"
+                disabled={importLoading}
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onImportClick?.()
+                }}
+                className="flex h-full w-full flex-col items-center justify-center rounded-md border border-dashed border-primary/40 bg-primary/5 text-primary transition-all hover:border-primary/60 hover:bg-primary/10 active:scale-[0.98] disabled:cursor-wait disabled:opacity-60"
+                aria-label="导入视频"
+              >
+                {importLoading ? (
+                  <span className="h-5 w-5 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+                ) : (
+                  <Plus size={22} strokeWidth={2} />
+                )}
+              </button>
+            </li>
           </ul>
 
           {/* 高光时刻标记 */}

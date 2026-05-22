@@ -1,6 +1,7 @@
 import { Check, Pause, Play, Search, Volume2, VolumeX, X } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { searchNetworkAudios, type NetworkAudio } from '@/data/audioLibrary'
+import { fetchBgmBuffer, getBgmPlayUrls, primeBgmCache } from '@/utils/bgmLoader'
 
 interface AudioPanelProps {
   keepOriginalAudio: boolean
@@ -33,6 +34,33 @@ export function AudioPanel({
     setPreviewingId(null)
   }, [])
 
+  const playFromUrl = useCallback(
+    (audio: NetworkAudio, url: string, urls: string[], index: number) => {
+      const el = new Audio(url)
+      el.volume = 0.6
+      audioRef.current = el
+      setPreviewingId(audio.id)
+      el.onended = () => setPreviewingId(null)
+      el.onerror = () => {
+        const next = urls[index + 1]
+        if (next) {
+          playFromUrl(audio, next, urls, index + 1)
+          return
+        }
+        setPreviewingId(null)
+      }
+      el.play().catch(() => {
+        const next = urls[index + 1]
+        if (next) {
+          playFromUrl(audio, next, urls, index + 1)
+          return
+        }
+        setPreviewingId(null)
+      })
+    },
+    [],
+  )
+
   const handlePreview = useCallback(
     (audio: NetworkAudio, e: React.MouseEvent) => {
       e.stopPropagation()
@@ -41,14 +69,13 @@ export function AudioPanel({
         return
       }
       stopPreview()
-      const el = new Audio(audio.previewUrl)
-      el.volume = 0.6
-      audioRef.current = el
-      setPreviewingId(audio.id)
-      el.play().catch(() => setPreviewingId(null))
-      el.onended = () => setPreviewingId(null)
+      const urls = getBgmPlayUrls(audio.id)
+      playFromUrl(audio, urls[0], urls, 0)
+      fetchBgmBuffer(audio.id)
+        .then((buffer) => primeBgmCache(audio.id, buffer))
+        .catch(() => undefined)
     },
-    [previewingId, stopPreview],
+    [previewingId, stopPreview, playFromUrl],
   )
 
   useEffect(() => () => stopPreview(), [stopPreview])

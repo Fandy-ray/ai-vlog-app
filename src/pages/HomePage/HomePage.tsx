@@ -35,7 +35,7 @@ export function HomePage() {
         {/* 智能创作入口 */}
         <button
           type="button"
-          onClick={() => navigate('/editor')}
+          onClick={() => navigate('/create')}
           className="group relative mb-6 w-full overflow-hidden rounded-[var(--radius-2xl)] text-left shadow-[var(--shadow-hero)] transition-transform active:scale-[0.99]"
         >
           <img
@@ -96,7 +96,7 @@ export function HomePage() {
             <li key={item.id}>
               <MemoryCard
                 item={item}
-                onClick={() => navigate('/editor')}
+                onClick={() => navigate('/create')}
               />
             </li>
           ))}
@@ -107,7 +107,7 @@ export function HomePage() {
         active="home"
         gardenBadge={3}
         onChange={(tab) => {
-          if (tab === 'create') navigate('/editor')
+          if (tab === 'create') navigate('/create')
           else show(`${tab === 'garden' ? '记忆花园' : tab === 'profile' ? '我的' : '首页'}即将开放`)
         }}
       />

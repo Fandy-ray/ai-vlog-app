@@ -1,6 +1,6 @@
 {
   "package": "com.example.demo",
-  "name": "demo",
+  "name": "忆眸",
   "versionName": "1.0.0",
   "versionCode": 1,
   "minPlatformVersion": 1070,
@@ -23,6 +23,12 @@
     },
     {
       "name": "system.request"
+    },
+    {
+      "name": "system.file"
+    },
+    {
+      "name": "system.share"
     }
   ],
   "permissions": [
@@ -60,6 +66,18 @@
         "component": "index"
       },
       "pages/preview": {
+        "component": "index"
+      },
+      "pages/create": {
+        "component": "index"
+      },
+      "pages/editor": {
+        "component": "index"
+      },
+      "pages/complete": {
+        "component": "index"
+      },
+      "pages/vlog-learn": {
         "component": "index"
       }
     },
@@ -107,6 +125,22 @@
       "pages/preview": {
         "titleBar": false,
         "titleBarText": "预览"
+      },
+      "pages/create": {
+        "titleBar": false,
+        "titleBarText": "导入素材"
+      },
+      "pages/editor": {
+        "titleBar": false,
+        "titleBarText": "智能剪辑"
+      },
+      "pages/complete": {
+        "titleBar": false,
+        "titleBarText": "创作完成"
+      },
+      "pages/vlog-learn": {
+        "titleBar": false,
+        "titleBarText": "学习 Vlog"
       }
     }
   }

@@ -6,6 +6,10 @@ import router from '@system.router'
 
 const PAGES = {
   home: '/pages/home',
+  create: '/pages/create',
+  editor: '/pages/editor',
+  complete: '/pages/complete',
+  vlogLearn: '/pages/vlog-learn',
   style: '/pages/style',
   shoot: '/pages/shoot',
   upload: '/pages/upload',

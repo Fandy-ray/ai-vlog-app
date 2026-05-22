@@ -20,7 +20,7 @@ export function VlogLearnPage() {
   const scene = VLOG_SCENES.find((s) => s.id === activeId) ?? VLOG_SCENES[0]
   const scrollerRef = useRef<HTMLUListElement>(null)
   const trackRef = useRef<HTMLDivElement>(null)
-  const scrollEndTimer = useRef<ReturnType<typeof setTimeout>>()
+  const scrollEndTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const tapScrolling = useRef(false)
   const [scrollProgress, setScrollProgress] = useState(0)
   const activeIndex = VLOG_SCENES.findIndex((s) => s.id === activeId)

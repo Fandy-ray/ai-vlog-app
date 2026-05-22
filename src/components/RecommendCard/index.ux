@@ -1,0 +1,92 @@
+<template>
+  <div class="c-recommend-card" onclick="handleTap">
+    <stack class="c-recommend-cover-wrap">
+      <image class="c-recommend-cover" src="{{ item.cover }}"></image>
+      <div class="c-recommend-cover-mask"></div>
+      <text class="c-recommend-tag" if="{{ item.tag }}">✦ {{ item.tag }}</text>
+    </stack>
+    <div class="c-recommend-body">
+      <text class="c-recommend-title">{{ item.title }}</text>
+      <text class="c-recommend-sub">{{ item.subtitle }}</text>
+    </div>
+  </div>
+</template>
+
+<script>
+export default {
+  props: {
+    item: {
+      type: Object,
+      default: {}
+    }
+  },
+
+  handleTap() {
+    this.$emit('click', { item: this.item })
+  }
+}
+</script>
+
+<style lang="less">
+@import '../../assets/styles/variables.less';
+
+.c-recommend-card {
+  width: 280px;
+  margin-right: 20px;
+  border-radius: @radius-lg;
+  background-color: @surface;
+  overflow: hidden;
+}
+
+.c-recommend-cover-wrap {
+  width: 280px;
+  height: 180px;
+}
+
+.c-recommend-cover {
+  width: 280px;
+  height: 180px;
+  object-fit: cover;
+}
+
+.c-recommend-cover-mask {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 80px;
+  background-color: rgba(0, 0, 0, 0.35);
+}
+
+.c-recommend-tag {
+  position: absolute;
+  left: 12px;
+  top: 12px;
+  padding: 4px 12px;
+  border-radius: 20px;
+  background-color: fade(@brand-accent, 90%);
+  color: @white;
+  font-size: 18px;
+}
+
+.c-recommend-body {
+  padding: 14px 16px 18px 16px;
+  flex-direction: column;
+}
+
+.c-recommend-title {
+  font-size: 24px;
+  font-weight: bold;
+  color: @text-primary;
+  lines: 1;
+  text-overflow: ellipsis;
+}
+
+.c-recommend-sub {
+  font-size: 20px;
+  color: @text-muted;
+  margin-top: 4px;
+  lines: 1;
+  text-overflow: ellipsis;
+}
+</style>

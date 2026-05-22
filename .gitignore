@@ -2,3 +2,19 @@ node_modules
 dist
 *.local
 .DS_Store
+
+# 密钥与本地配置（切勿上传）
+.env
+.env.*
+!.env.example
+backend/.env
+
+# 构建与导出产物
+backend/exports
+backend/node_modules
+
+# 系统与编辑器
+Thumbs.db
+.idea
+.vscode/*
+!.vscode/extensions.json

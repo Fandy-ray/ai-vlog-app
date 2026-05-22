@@ -5,11 +5,23 @@ export interface NetworkAudio {
   duration: string
   /** 用于搜索匹配：风格、场景、情绪等 */
   tags: string[]
-  /** 试听地址（网络音频） */
+  /** 本地配乐路径（public/bgm/{id}.mp3） */
   previewUrl: string
+  /** 远程回退地址（仅试听回退；导出优先本地） */
+  remoteUrl: string
   /** 封面渐变色，用于列表缩略图 */
   coverFrom: string
   coverTo: string
+}
+
+const REMOTE_BASE = 'https://www.soundhelix.com/examples/mp3'
+
+function localBgm(id: string) {
+  return `/bgm/${id}.mp3`
+}
+
+function remoteBgm(song: number) {
+  return `${REMOTE_BASE}/SoundHelix-Song-${song}.mp3`
 }
 
 export const NETWORK_AUDIOS: NetworkAudio[] = [
@@ -19,7 +31,8 @@ export const NETWORK_AUDIOS: NetworkAudio[] = [
     artist: '轻松治愈',
     duration: '02:18',
     tags: ['轻松', '治愈', '日常', 'vlog'],
-    previewUrl: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3',
+    previewUrl: localBgm('sunny-day'),
+    remoteUrl: remoteBgm(1),
     coverFrom: '#FFE8B8',
     coverTo: '#FFB357',
   },
@@ -29,7 +42,8 @@ export const NETWORK_AUDIOS: NetworkAudio[] = [
     artist: '旅行氛围',
     duration: '02:45',
     tags: ['旅行', '海边', '清新', 'vlog'],
-    previewUrl: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-2.mp3',
+    previewUrl: localBgm('coastal-walk'),
+    remoteUrl: remoteBgm(2),
     coverFrom: '#B8E8FF',
     coverTo: '#5E7CE0',
   },
@@ -39,7 +53,8 @@ export const NETWORK_AUDIOS: NetworkAudio[] = [
     artist: '都市节奏',
     duration: '02:02',
     tags: ['都市', '节奏', '夜景', '街拍'],
-    previewUrl: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-3.mp3',
+    previewUrl: localBgm('city-lights'),
+    remoteUrl: remoteBgm(3),
     coverFrom: '#D4C4F0',
     coverTo: '#7B5EB8',
   },
@@ -49,7 +64,8 @@ export const NETWORK_AUDIOS: NetworkAudio[] = [
     artist: '温暖胶片',
     duration: '03:10',
     tags: ['温暖', '胶片', '黄昏', '回忆'],
-    previewUrl: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3',
+    previewUrl: localBgm('golden-hour'),
+    remoteUrl: remoteBgm(4),
     coverFrom: '#FFD4B8',
     coverTo: '#E88B5E',
   },
@@ -59,7 +75,8 @@ export const NETWORK_AUDIOS: NetworkAudio[] = [
     artist: '咖啡时光',
     duration: '01:58',
     tags: ['早晨', '咖啡', '慢生活', '安静'],
-    previewUrl: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-5.mp3',
+    previewUrl: localBgm('morning-brew'),
+    remoteUrl: remoteBgm(5),
     coverFrom: '#E8D4C4',
     coverTo: '#A88B6E',
   },
@@ -69,7 +86,8 @@ export const NETWORK_AUDIOS: NetworkAudio[] = [
     artist: '雨天情绪',
     duration: '02:36',
     tags: ['雨天', '情绪', '安静', '室内'],
-    previewUrl: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-6.mp3',
+    previewUrl: localBgm('rainy-window'),
+    remoteUrl: remoteBgm(6),
     coverFrom: '#C4D4E8',
     coverTo: '#6E8BA8',
   },
@@ -79,7 +97,8 @@ export const NETWORK_AUDIOS: NetworkAudio[] = [
     artist: '公路旅行',
     duration: '02:22',
     tags: ['公路', '旅行', '自由', '开车'],
-    previewUrl: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-7.mp3',
+    previewUrl: localBgm('weekend-drive'),
+    remoteUrl: remoteBgm(7),
     coverFrom: '#B8F0D4',
     coverTo: '#4AB88B',
   },
@@ -89,7 +108,8 @@ export const NETWORK_AUDIOS: NetworkAudio[] = [
     artist: '夜晚氛围',
     duration: '02:50',
     tags: ['夜晚', '星空', '浪漫', '慢节奏'],
-    previewUrl: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-8.mp3',
+    previewUrl: localBgm('starry-night'),
+    remoteUrl: remoteBgm(8),
     coverFrom: '#1A2540',
     coverTo: '#5E7CE0',
   },

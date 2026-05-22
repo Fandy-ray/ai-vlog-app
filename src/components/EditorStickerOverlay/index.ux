@@ -1,0 +1,114 @@
+<template>
+  <div
+    class="editor-sticker {{ editable ? 'editor-sticker-editable' : '' }}"
+    style="left: {{ overlay.x }}%; top: {{ overlay.y }}%; width: {{ overlay.width }}%; height: {{ overlay.height }}%;"
+    ontouchstart="onTouchStart"
+    ontouchmove="onTouchMove"
+    ontouchend="onTouchEnd"
+    onclick="onTap"
+  >
+    <text class="editor-sticker-emoji">{{ emoji }}</text>
+  </div>
+</template>
+
+<script>
+import { getStickerEmoji } from '../../helper/data/stickers'
+
+export default {
+  props: {
+    overlay: {
+      type: Object,
+      default: {}
+    },
+    editable: {
+      type: Boolean,
+      default: false
+    }
+  },
+
+  data: {
+    emoji: '✨',
+    touchStart: null
+  },
+
+  onPropsChange() {
+    this.emoji = getStickerEmoji(this.overlay.stickerId)
+  },
+
+  onInit() {
+    this.emoji = getStickerEmoji(this.overlay.stickerId)
+  },
+
+  onTap() {
+    this.$emit('activate', { id: this.overlay.id })
+  },
+
+  onTouchStart(evt) {
+    if (!this.editable) {
+      return
+    }
+
+    const touch = evt.touches && evt.touches[0]
+    if (!touch) {
+      return
+    }
+
+    this.touchStart = {
+      pageX: touch.pageX || touch.clientX || 0,
+      pageY: touch.pageY || touch.clientY || 0,
+      ox: this.overlay.x,
+      oy: this.overlay.y
+    }
+  },
+
+  onTouchMove(evt) {
+    if (!this.editable || !this.touchStart) {
+      return
+    }
+
+    const touch = evt.touches && evt.touches[0]
+    if (!touch) {
+      return
+    }
+
+    const pageX = touch.pageX || touch.clientX || 0
+    const pageY = touch.pageY || touch.clientY || 0
+    const dx = (pageX - this.touchStart.pageX) / 6
+    const dy = (pageY - this.touchStart.pageY) / 6
+
+    this.$emit('change', {
+      id: this.overlay.id,
+      x: clamp(this.touchStart.ox + dx, 4, 96),
+      y: clamp(this.touchStart.oy + dy, 4, 96)
+    })
+  },
+
+  onTouchEnd() {
+    this.touchStart = null
+    this.$emit('transformend', { id: this.overlay.id })
+  }
+}
+
+function clamp(value, min, max) {
+  return Math.min(max, Math.max(min, value))
+}
+</script>
+
+<style lang="less">
+.editor-sticker {
+  position: absolute;
+  align-items: center;
+  justify-content: center;
+}
+
+.editor-sticker-editable {
+  border-width: 1px;
+  border-color: rgba(255, 255, 255, 0.45);
+  border-style: dashed;
+}
+
+.editor-sticker-emoji {
+  font-size: 48px;
+  text-align: center;
+}
+</style>
