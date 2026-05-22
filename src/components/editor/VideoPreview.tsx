@@ -9,10 +9,17 @@ import type { ClipTransform } from '@/types/clipTransform'
 import { VideoStickerOverlay } from '@/components/editor/VideoStickerOverlay'
 import { VideoTextOverlay } from '@/components/editor/VideoTextOverlay'
 import type { StickerOverlay, TextOverlay } from '@/types/editorState'
+import { EDITOR_PREVIEW_ATTR } from '@/utils/editorSelectionHitTest'
 import { formatTime } from '@/utils/formatTime'
+import { isActiveAtTime } from '@/utils/timeRange'
 
 export interface StickerPreviewItem {
   overlay: StickerOverlay
+  editable: boolean
+}
+
+export interface TextPreviewItem {
+  overlay: TextOverlay
   editable: boolean
 }
 
@@ -28,16 +35,20 @@ interface VideoPreviewProps {
   filterCss?: string
   filterIntensity?: number
   effectId?: string
-  textOverlay?: TextOverlay | null
-  textEditable?: boolean
-  onTextChange?: (patch: Partial<TextOverlay>) => void
-  /** 非编辑态下点击已有文字，重新进入文字编辑 */
-  onTextActivate?: () => void
+  textItems?: TextPreviewItem[]
+  onTextChange?: (id: string, patch: Partial<TextOverlay>) => void
+  onTextTransformEnd?: () => void
+  onTextActivate?: (id: string) => void
+  onTextContextMenu?: (e: React.MouseEvent, id: string) => void
   stickerItems?: StickerPreviewItem[]
   onStickerChange?: (id: string, patch: Partial<StickerOverlay>) => void
   onStickerTransformEnd?: () => void
   onStickerActivate?: (id: string) => void
+  onStickerContextMenu?: (e: React.MouseEvent, id: string) => void
   onPreviewBackgroundClick?: () => void
+  onPreviewContextMenu?: (e: React.MouseEvent) => void
+  selectedTextId?: string | null
+  selectedStickerId?: string | null
   onTogglePlay: () => void
   onSeek: (ratio: number) => void
   isCropMode?: boolean
@@ -58,15 +69,20 @@ export function VideoPreview({
   filterCss = 'none',
   filterIntensity = 100,
   effectId = 'none',
-  textOverlay,
-  textEditable,
+  textItems = [],
   onTextChange,
+  onTextTransformEnd,
   onTextActivate,
+  onTextContextMenu,
   stickerItems = [],
   onStickerChange,
   onStickerTransformEnd,
   onStickerActivate,
+  onStickerContextMenu,
   onPreviewBackgroundClick,
+  onPreviewContextMenu,
+  selectedTextId = null,
+  selectedStickerId = null,
   onTogglePlay,
   onSeek,
   isCropMode = false,
@@ -127,6 +143,14 @@ export function VideoPreview({
     }
   }, [isPlaying, videoSrc])
 
+  const visibleTexts = textItems.filter(
+    ({ overlay }) =>
+      overlay.content.trim() && isActiveAtTime(currentTime, overlay),
+  )
+  const visibleStickers = stickerItems.filter(({ overlay }) =>
+    isActiveAtTime(currentTime, overlay),
+  )
+
   const handleProgressClick = (e: React.MouseEvent<HTMLDivElement>) => {
     const rect = e.currentTarget.getBoundingClientRect()
     const ratio = (e.clientX - rect.left) / rect.width
@@ -137,8 +161,10 @@ export function VideoPreview({
     <section className="shrink-0 px-4">
       <div className="relative overflow-hidden rounded-[var(--radius-xl)] bg-black shadow-[var(--shadow-card)]">
         <div
+          {...{ [EDITOR_PREVIEW_ATTR]: '' }}
           className="relative aspect-video w-full"
           onClick={() => onPreviewBackgroundClick?.()}
+          onContextMenu={onPreviewContextMenu}
           role="presentation"
         >
           <ClipTransformLayer transform={clipTransform} sourceAspect={sourceAspect}>
@@ -168,20 +194,35 @@ export function VideoPreview({
 
           {!isCropMode && <EffectOverlay effectId={effectId} />}
 
-          {textOverlay && (
+          {visibleTexts.map(({ overlay, editable }) => (
             <VideoTextOverlay
-              overlay={textOverlay}
-              editable={textEditable}
-              onChange={onTextChange}
-              onActivate={onTextActivate}
+              key={overlay.id}
+              overlay={overlay}
+              editable={editable}
+              selected={editable || selectedTextId === overlay.id}
+              onChange={
+                editable && onTextChange
+                  ? (patch) => onTextChange(overlay.id, patch)
+                  : undefined
+              }
+              onTransformEnd={editable ? onTextTransformEnd : undefined}
+              onActivate={
+                onTextActivate ? () => onTextActivate(overlay.id) : undefined
+              }
+              onContextMenu={
+                onTextContextMenu
+                  ? (e) => onTextContextMenu(e, overlay.id)
+                  : undefined
+              }
             />
-          )}
+          ))}
 
-          {stickerItems.map(({ overlay, editable }) => (
+          {visibleStickers.map(({ overlay, editable }) => (
             <VideoStickerOverlay
               key={overlay.id}
               overlay={overlay}
               editable={editable}
+              selected={editable || selectedStickerId === overlay.id}
               onChange={
                 editable && onStickerChange
                   ? (patch) => onStickerChange(overlay.id, patch)
@@ -191,6 +232,11 @@ export function VideoPreview({
               onActivate={
                 onStickerActivate ? () => onStickerActivate(overlay.id) : undefined
               }
+              onContextMenu={
+                onStickerContextMenu
+                  ? (e) => onStickerContextMenu(e, overlay.id)
+                  : undefined
+              }
             />
           ))}
 
@@ -199,6 +245,7 @@ export function VideoPreview({
           <div
             className="absolute inset-x-0 bottom-0 px-3 pb-3 pt-8"
             onClick={(e) => e.stopPropagation()}
+            onPointerDown={(e) => e.stopPropagation()}
           >
             <div className="flex items-center gap-3">
               <button

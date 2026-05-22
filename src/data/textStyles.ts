@@ -65,18 +65,30 @@ export function getFontFamily(fontId: string): string {
   return TEXT_FONTS.find((f) => f.id === fontId)?.family ?? TEXT_FONTS[0].family
 }
 
-export function createDefaultTextOverlay() {
+export function createTextId(): string {
+  return `text-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
+}
+
+export function createDefaultTextOverlay(
+  videoDuration = 96,
+  startTime = 0,
+  index = 0,
+) {
+  const offset = index % 5
   return {
-    content: '输入文字',
+    id: createTextId(),
+    content: '',
     color: '#FFFFFF',
     fontId: 'noto',
-    x: 50,
-    y: 38,
+    x: 50 + (offset % 3) * 8,
+    y: 38 + Math.floor(offset / 3) * 10,
     width: 42,
     height: 14,
     rotation: 0,
     backgroundColor: '#000000',
     backgroundOpacity: 0,
+    startTime: Math.floor(startTime),
+    endTime: Math.floor(videoDuration),
   }
 }
 

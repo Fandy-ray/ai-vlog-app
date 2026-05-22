@@ -1,10 +1,17 @@
 import { Check, Trash2, X } from 'lucide-react'
+import { EditorToolPanelShell } from '@/components/editor/EditorToolPanelShell'
+import { TimeRangeInputs } from '@/components/editor/TimeRangeInputs'
 import { STICKER_PRESETS } from '@/data/stickers'
 import type { StickerOverlay } from '@/types/editorState'
+import { createDefaultTimeRangeFromPlayhead } from '@/utils/timeRange'
+import type { TimeRange } from '@/utils/timeRange'
 
 interface StickerPanelProps {
   draft: StickerOverlay | null
+  videoDuration: number
+  currentTime: number
   onPick: (stickerId: string) => void
+  onRangeChange: (range: TimeRange) => void
   onRemove: () => void
   onConfirm: () => void
   onClose: () => void
@@ -12,16 +19,23 @@ interface StickerPanelProps {
 
 export function StickerPanel({
   draft,
+  videoDuration,
+  currentTime,
   onPick,
+  onRangeChange,
   onRemove,
   onConfirm,
   onClose,
 }: StickerPanelProps) {
+  const timeRange = draft
+    ? { startTime: draft.startTime, endTime: draft.endTime }
+    : createDefaultTimeRangeFromPlayhead(videoDuration, currentTime)
+
   return (
-    <section className="shrink-0 animate-slide-up border-t border-border/80 bg-surface shadow-[0_-4px_16px_rgb(44_62_80_/4%)]">
-      <header className="flex items-center justify-between px-4 pb-2 pt-3">
-        <h3 className="text-sm font-semibold text-text">贴纸</h3>
-        <div className="flex items-center gap-2">
+    <EditorToolPanelShell
+      title="贴纸"
+      headerActions={
+        <>
           {draft && (
             <button
               type="button"
@@ -48,14 +62,14 @@ export function StickerPanel({
           >
             <X size={18} />
           </button>
-        </div>
-      </header>
-
+        </>
+      }
+    >
       <p className="px-4 pb-2 text-[10px] text-text-muted">
         选择贴纸后可在画面上拖动、缩放与旋转；确认后可再次打开继续添加
       </p>
 
-      <ul className="grid grid-cols-6 gap-2 px-4 pb-4">
+      <ul className="grid grid-cols-6 gap-2 px-4 pb-3">
         {STICKER_PRESETS.map((sticker) => {
           const active = draft?.stickerId === sticker.id
           return (
@@ -78,6 +92,19 @@ export function StickerPanel({
           )
         })}
       </ul>
-    </section>
+
+      <section className="border-t border-border/50 px-4 pb-4 pt-3">
+        <span className="mb-2 block text-xs font-medium text-text">存在时间范围</span>
+        <TimeRangeInputs
+          range={timeRange}
+          videoDuration={videoDuration}
+          onChange={onRangeChange}
+          disabled={!draft}
+        />
+        {!draft && (
+          <p className="mt-1.5 text-[10px] text-text-muted">请先选择贴纸后再设置存在时间</p>
+        )}
+      </section>
+    </EditorToolPanelShell>
   )
 }

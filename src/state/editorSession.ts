@@ -9,8 +9,10 @@ let session: EditorSnapshot = cloneSnapshot(INITIAL_EDITOR_SNAPSHOT)
 function cloneSnapshot(s: EditorSnapshot): EditorSnapshot {
   return {
     ...s,
-    textOverlay: s.textOverlay ? { ...s.textOverlay } : null,
+    textOverlays: s.textOverlays.map((t) => ({ ...t })),
     stickerOverlays: s.stickerOverlays.map((st) => ({ ...st })),
+    originalAudioRange: { ...s.originalAudioRange },
+    bgmRange: { ...s.bgmRange },
   }
 }
 

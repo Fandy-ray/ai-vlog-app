@@ -1,13 +1,21 @@
-import { Check, Pause, Play, Search, Volume2, VolumeX, X } from 'lucide-react'
+import { Check, ChevronDown, Pause, Play, Search, Volume2, VolumeX, X } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { searchNetworkAudios, type NetworkAudio } from '@/data/audioLibrary'
+import { EditorToolPanelShell } from '@/components/editor/EditorToolPanelShell'
+import { TimeRangeInputs } from '@/components/editor/TimeRangeInputs'
+import { getNetworkAudio, searchNetworkAudios, type NetworkAudio } from '@/data/audioLibrary'
+import type { TimeRange } from '@/utils/timeRange'
 import { fetchBgmBuffer, getBgmPlayUrls, primeBgmCache } from '@/utils/bgmLoader'
 
 interface AudioPanelProps {
   keepOriginalAudio: boolean
   selectedBgmId: string | null
+  originalAudioRange: TimeRange
+  bgmRange: TimeRange
+  videoDuration: number
   onKeepOriginalChange: (value: boolean) => void
   onBgmSelect: (id: string | null) => void
+  onOriginalRangeChange: (range: TimeRange) => void
+  onBgmRangeChange: (range: TimeRange) => void
   onConfirm: () => void
   onClose: () => void
 }
@@ -15,8 +23,13 @@ interface AudioPanelProps {
 export function AudioPanel({
   keepOriginalAudio,
   selectedBgmId,
+  originalAudioRange,
+  bgmRange,
+  videoDuration,
   onKeepOriginalChange,
   onBgmSelect,
+  onOriginalRangeChange,
+  onBgmRangeChange,
   onConfirm,
   onClose,
 }: AudioPanelProps) {
@@ -25,6 +38,13 @@ export function AudioPanel({
   const audioRef = useRef<HTMLAudioElement | null>(null)
 
   const filteredAudios = useMemo(() => searchNetworkAudios(query), [query])
+  const selectedAudio = getNetworkAudio(selectedBgmId)
+
+  const dropdownAudios = useMemo(() => {
+    if (!selectedAudio) return filteredAudios
+    if (filteredAudios.some((a) => a.id === selectedAudio.id)) return filteredAudios
+    return [selectedAudio, ...filteredAudios]
+  }, [filteredAudios, selectedAudio])
 
   const stopPreview = useCallback(() => {
     if (audioRef.current) {
@@ -81,12 +101,10 @@ export function AudioPanel({
   useEffect(() => () => stopPreview(), [stopPreview])
 
   return (
-    <section className="shrink-0 animate-slide-up border-t border-border/80 bg-surface shadow-[0_-4px_16px_rgb(44_62_80_/4%)]">
-      <header className="flex items-center justify-between px-4 pb-2 pt-3">
-        <h3 className="text-sm font-semibold text-text">音频</h3>
-        <PanelActions onConfirm={onConfirm} onClose={onClose} />
-      </header>
-
+    <EditorToolPanelShell
+      title="音频"
+      headerActions={<PanelActions onConfirm={onConfirm} onClose={onClose} />}
+    >
       <div className="mx-4 mb-3 flex items-center justify-between rounded-[var(--radius-md)] bg-bg px-3 py-2.5">
         <div className="flex items-center gap-2">
           {keepOriginalAudio ? (
@@ -122,9 +140,38 @@ export function AudioPanel({
         />
       </div>
 
+      <div className="relative mx-4 mb-2">
+        <select
+          value={selectedBgmId ?? ''}
+          onChange={(e) => {
+            const v = e.target.value
+            onBgmSelect(v === '' ? null : v)
+          }}
+          className="w-full appearance-none rounded-[var(--radius-md)] border border-border bg-bg py-2 pl-3 pr-9 text-xs text-text outline-none transition-colors focus:border-primary focus:ring-2 focus:ring-primary/15"
+          aria-label="快速选择配乐"
+        >
+          <option value="">无配乐</option>
+          {dropdownAudios.length === 0 ? (
+            <option value="" disabled>
+              未找到匹配的音频
+            </option>
+          ) : (
+            dropdownAudios.map((audio) => (
+              <option key={audio.id} value={audio.id}>
+                {audio.name} · {audio.artist}
+              </option>
+            ))
+          )}
+        </select>
+        <ChevronDown
+          size={16}
+          className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-text-muted"
+        />
+      </div>
+
       <p className="px-4 pb-1.5 text-[10px] text-text-muted">网络音频库</p>
 
-      <ul className="max-h-[200px] space-y-1 overflow-y-auto px-4 pb-4">
+      <ul className="max-h-[200px] space-y-1 overflow-y-auto px-4 pb-3">
         <li>
           <AudioListItem
             active={selectedBgmId === null}
@@ -152,7 +199,36 @@ export function AudioPanel({
           ))
         )}
       </ul>
-    </section>
+
+      <section className="space-y-3 border-t border-border/50 px-4 pb-4 pt-3">
+        <div>
+          <span className="mb-2 block text-xs font-medium text-text">原声存在时间范围</span>
+          <TimeRangeInputs
+            range={originalAudioRange}
+            videoDuration={videoDuration}
+            onChange={onOriginalRangeChange}
+            disabled={!keepOriginalAudio}
+          />
+          {!keepOriginalAudio && (
+            <p className="mt-1.5 text-[10px] text-text-muted">
+              请先开启「保留视频原声」后再设置存在时间
+            </p>
+          )}
+        </div>
+        <div>
+          <span className="mb-2 block text-xs font-medium text-text">配乐存在时间范围</span>
+          <TimeRangeInputs
+            range={bgmRange}
+            videoDuration={videoDuration}
+            onChange={onBgmRangeChange}
+            disabled={selectedBgmId === null}
+          />
+          {selectedBgmId === null && (
+            <p className="mt-1.5 text-[10px] text-text-muted">请先选择配乐后再设置存在时间</p>
+          )}
+        </div>
+      </section>
+    </EditorToolPanelShell>
   )
 }
 
@@ -164,7 +240,7 @@ function PanelActions({
   onClose: () => void
 }) {
   return (
-    <div className="flex items-center gap-2">
+    <>
       <button
         type="button"
         onClick={onConfirm}
@@ -181,7 +257,7 @@ function PanelActions({
       >
         <X size={18} />
       </button>
-    </div>
+    </>
   )
 }
 
