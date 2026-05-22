@@ -1,3 +1,7 @@
+export function formatDurationMs(ms: number): string {
+  return formatTime(Math.floor(ms / 1000))
+}
+
 export function formatTime(seconds: number): string {
   const s = Math.max(0, Math.floor(seconds))
   const m = Math.floor(s / 60)

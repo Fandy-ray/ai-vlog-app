@@ -63,15 +63,15 @@ async function renderTitlePng(text, outputPath, options = {}) {
 
   const line = escapeXml(text.slice(0, 22))
   const svg = `<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="360">
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="220">
   <defs>
-    <filter id="blur"><feGaussianBlur stdDeviation="12"/></filter>
+    <filter id="blur"><feGaussianBlur stdDeviation="8"/></filter>
   </defs>
-  <rect x="140" y="80" width="800" height="200" rx="28" fill="rgba(255,255,255,0.18)" filter="url(#blur)"/>
-  <rect x="140" y="80" width="800" height="200" rx="28" fill="rgba(255,255,255,0.12)"/>
-  <text x="540" y="195" text-anchor="middle"
+  <rect x="48" y="36" width="624" height="148" rx="20" fill="rgba(0,0,0,0.35)" filter="url(#blur)"/>
+  <rect x="48" y="36" width="624" height="148" rx="20" fill="rgba(255,255,255,0.14)"/>
+  <text x="360" y="128" text-anchor="middle"
     font-family="Arial, PingFang SC, Hiragino Sans GB, sans-serif"
-    font-size="52" font-weight="600" letter-spacing="2"
+    font-size="42" font-weight="600" letter-spacing="1"
     fill="#FFFFFF">
     ${line}
   </text>

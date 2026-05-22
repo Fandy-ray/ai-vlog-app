@@ -17,7 +17,7 @@ const PHASE_LOGS = {
   script: '正在撰写旁白…',
   music: '正在匹配章节音乐并保留环境声…',
   tts: '正在合成配音…',
-  edit: '正在一次性渲染 720p 成片…',
+  edit: '正在快速渲染 720p 成片…',
   mix: '正在混音…',
   overlay: '正在添加片头…',
   finalize: '正在导出…',
@@ -80,7 +80,8 @@ router.post('/vlog/generate', upload.array('clips', 12), async (req, res) => {
     let workMaterials = materials
     let workPaths = materials.map((m) => m.filePath)
 
-    if (files.length > 0) {
+    const skipAnalysis = process.env.VIVO_FAST_VLOG !== 'false'
+    if (files.length > 0 && !skipAnalysis) {
       analysis = await vlogAnalysisService.analyzeClips(
         materials.map(({ filePath, ...m }) => m),
         workPaths,
@@ -297,6 +298,54 @@ router.post('/vlog/generate', upload.array('clips', 12), async (req, res) => {
     res.status(500).json({
       code: 500,
       message,
+    })
+  }
+})
+
+router.post('/vlog/trim', upload.single('video'), async (req, res) => {
+  try {
+    const file = req.file
+    if (!file) {
+      return res.status(400).json({ code: 400, message: '请上传视频文件' })
+    }
+
+    const startSec = Number(req.body.startSec)
+    const endSec = Number(req.body.endSec)
+    if (!Number.isFinite(startSec) || !Number.isFinite(endSec) || endSec <= startSec) {
+      return res.status(400).json({ code: 400, message: '请提供有效的起止时间' })
+    }
+    if (endSec - startSec < 1) {
+      return res.status(400).json({ code: 400, message: '片段至少 1 秒' })
+    }
+    if (endSec - startSec > 65) {
+      return res.status(400).json({ code: 400, message: '单段最长 60 秒' })
+    }
+
+    const hasFfmpeg = await ffmpegService.checkFfmpeg()
+    if (!hasFfmpeg) {
+      return res.status(503).json({ code: 503, message: '服务器未安装 ffmpeg' })
+    }
+
+    const outName = `trim-${Date.now()}-${uuidv4().slice(0, 8)}.mp4`
+    const outPath = path.join(uploadDir, outName)
+    await ffmpegService.trimVideoClip(file.path, outPath, startSec, endSec)
+
+    try {
+      fs.unlinkSync(file.path)
+    } catch {
+      /* ignore */
+    }
+
+    res.setHeader('Content-Type', 'video/mp4')
+    res.setHeader('Content-Disposition', `inline; filename="${outName}"`)
+    res.sendFile(outPath, (err) => {
+      if (err) console.error('[vlog/trim] sendFile:', err.message)
+    })
+  } catch (error) {
+    console.error('[vlog/trim]', error)
+    res.status(500).json({
+      code: 500,
+      message: error.message || '裁剪失败',
     })
   }
 })

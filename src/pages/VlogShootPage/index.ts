@@ -1,0 +1,1 @@
+export { VlogShootPage } from './VlogShootPage'

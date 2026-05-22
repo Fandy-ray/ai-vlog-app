@@ -1,6 +1,8 @@
 const fs = require('fs')
+const path = require('path')
 const ffmpegService = require('./ffmpegService')
 const { buildSegmentBgmTrack } = require('./bgmSegmentService')
+const { resolveMoodAudio } = require('./musicLibraryService') // fallback BGM
 const {
   generateVlogEditPlan,
   reorderMaterialsByEditPlan,
@@ -86,10 +88,6 @@ async function produceDirectorVlog(ctx) {
     analysis: ctx.analysis,
   })
 
-  const durationProbePromise = Promise.all(
-    initialPaths.map((p) => ffmpegService.getVideoDuration(p)),
-  )
-
   const story = await storyPromise
   let plan = trimEditOrderToLimit(story.data, initialMaterials, MAX_SHOTS)
   if (plan.editOrder.length < MIN_SHOTS && story.data.editOrder.length >= MIN_SHOTS) {
@@ -131,10 +129,9 @@ async function produceDirectorVlog(ctx) {
 
   const enableNarration = wantsNarration(manifest)
   const narrationText = enableNarration ? plan.narration : ''
-  const burnTitle =
-    plan.burnVideoTitle !== false ||
-    /标题|片头|title/i.test(String(manifest.refinement || ''))
-  const videoTitle = plan.videoTitle || plan.title
+  // 暂不烧录片头标题（避免额外片头段导致音画错位）
+  const burnTitle = false
+  const videoTitle = (plan.videoTitle || plan.title || manifest.theme || '').trim()
 
   const durations = await Promise.all(filePaths.map((p) => ffmpegService.getVideoDuration(p)))
   const moods = materials.map((m) => {
@@ -148,13 +145,18 @@ async function produceDirectorVlog(ctx) {
   }
   log(`章节 BGM：${chapterBgm.length} 段，moods=${moods.join(',')}`)
 
-  onPhase('music', '正在匹配章节音乐并保留环境氛围…')
+  onPhase('music', '正在匹配背景音乐并保留环境氛围…')
 
   const bgmPromise = buildSegmentBgmTrack(chapterBgm, uploadDir, style, {
-    crossfadeSec: 1.6,
-  }).catch((err) => {
-    console.warn('[director] 章节 BGM 失败:', err.message)
-    return null
+    crossfadeSec: 1.4,
+  }).catch(async (err) => {
+    console.warn('[director] 章节 BGM 失败，回退单轨:', err.message)
+    const totalDur = durations.reduce((s, d) => s + d, 0) || 30
+    const dominantMood =
+      moods.find((m) => m === 'concert' || m === 'energetic') || moods[0] || 'calm'
+    const p = path.join(uploadDir, `_bgm-fallback-${Date.now()}.m4a`)
+    await resolveMoodAudio(dominantMood, totalDur + 4, p, 0.85)
+    return p
   })
 
   let ttsPromise = Promise.resolve({ ok: false, reason: 'skipped' })
@@ -167,12 +169,11 @@ async function produceDirectorVlog(ctx) {
     ? plan.transition
     : 'fade'
 
-  onPhase('edit', '正在一次性渲染 720p 电影感成片…')
+  onPhase('edit', '正在快速渲染 720p 成片…')
 
-  const segmentBgmPath = await bgmPromise
-  const tts = await ttsPromise
+  const [segmentBgmPath, tts] = await Promise.all([bgmPromise, ttsPromise])
   log(
-    `BGM 轨：${segmentBgmPath ? '已生成' : '未生成（将仅保留环境声）'}，TTS：${tts?.ok ? '有' : '无'}`,
+    `BGM 轨：${segmentBgmPath ? '已生成' : '未生成'}，TTS：${tts?.ok ? '有' : '无'}`,
   )
 
   const exportResult = await ffmpegService.produceDirectorExport(filePaths, outPath, {
@@ -180,8 +181,7 @@ async function produceDirectorVlog(ctx) {
     transition: safeTransition,
     bgmPath: segmentBgmPath,
     narrationPath: tts?.ok && tts.path ? tts.path : null,
-    titleText: burnTitle ? videoTitle : '',
-    titleDurationSec: 3.2,
+    burnTitle: false,
     moods,
   })
 

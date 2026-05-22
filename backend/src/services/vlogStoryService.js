@@ -57,7 +57,7 @@ ${materialLines.join('\n')}
 1. editOrder 必须按导拍分镜逻辑排列 sceneId，体现起承转合：opening 建立氛围 → build 推进 → climax 高潮 → resolve 收束。
 2. ${withNarration ? 'narration 全文即 TTS 配音稿，50-120 字，口语化，与画面故事一致；' : '不要生成 narration，narration 必须为空字符串 ""；'}
 3. videoTitle 为片头大标题（英文或中文，简洁高级，如 Seoul Vlog / 周末日记）。
-4. burnVideoTitle 默认 true；不要生成镜头字幕 caption（caption 一律留空 ""）。
+4. burnVideoTitle 必须为 false；不要生成镜头字幕 caption（caption 一律留空 ""）。
 5. editOrder 最多 8 个镜头、至少 6 个（若素材足够），体现起承转合，宁缺毋滥。
 6. 每个镜头指定 mood（nature/concert/urban/food/calm/energetic/study）；演唱会/现场必须用 concert 或 energetic，自然风景用 nature。
 7. chapters 将连续同 mood 的镜头归纳为 2-4 个「情绪章节」用于 BGM 切换。
@@ -65,7 +65,7 @@ ${materialLines.join('\n')}
 只输出 JSON：
 {
   "videoTitle": "片头标题",
-  "burnVideoTitle": true,
+  "burnVideoTitle": false,
   "title": "成片名",
   "narration": "TTS逐字朗读旁白",
   "storyArc": {
@@ -116,7 +116,7 @@ function fallbackEditPlan(manifest, materials, directorScenes) {
   const theme = manifest.theme || '我的 Vlog'
   return {
     videoTitle: `${theme}`.slice(0, 20),
-    burnVideoTitle: true,
+    burnVideoTitle: false,
     title: theme,
     narration: withNarration
       ? `这是关于${theme}的一天。从清晨到夜晚，每一帧都值得被记住。`
@@ -195,7 +195,7 @@ function sanitizeEditPlan(plan, materials, directorScenes, manifest = {}) {
 
   return {
     videoTitle: String(plan.videoTitle || plan.title || 'My Vlog').slice(0, 24),
-    burnVideoTitle: plan.burnVideoTitle !== false,
+    burnVideoTitle: false,
     title: String(plan.title || plan.videoTitle || 'Vlog').slice(0, 40),
     narration: withNarration ? String(plan.narration || '').trim() : '',
     storyArc: plan.storyArc || {},
@@ -207,7 +207,19 @@ function sanitizeEditPlan(plan, materials, directorScenes, manifest = {}) {
   }
 }
 
+function useFastStoryPlan() {
+  return process.env.VIVO_FAST_VLOG !== 'false'
+}
+
 async function generateVlogEditPlan({ manifest, materials, directorScenes, analysis }) {
+  if (useFastStoryPlan()) {
+    return {
+      ok: true,
+      provider: 'director-fast',
+      data: fallbackEditPlan(manifest, materials, directorScenes),
+    }
+  }
+
   if (vivoService.isConfigured()) {
     try {
       const prompt = buildEditPlanPrompt(manifest, materials, directorScenes, analysis)

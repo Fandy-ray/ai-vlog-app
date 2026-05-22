@@ -125,6 +125,11 @@ export const VLOG_SCENES: VlogScene[] = [
   },
 ]
 
-export function getVlogScene(id: string): VlogScene | undefined {
+/** @deprecated 请使用 `@/utils/vlogDirectorStore` 的 `getVlogScene`（支持 AI 动态导拍场景） */
+export function getVlogSceneFromCatalog(id: string): VlogScene | undefined {
   return VLOG_SCENES.find((s) => s.id === id)
+}
+
+export function formatSubjectCells(cells: GridCell[]) {
+  return cells.map((c) => `第 ${c} 格（${GRID_CELL_LABELS[c]}）`).join('、')
 }

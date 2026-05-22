@@ -9,29 +9,23 @@ const execFileAsync = promisify(execFile)
 const OUT_W = 720
 const OUT_H = 1280
 const OUT_FPS = 30
-const ENCODE_PRESET = 'veryfast'
-const ENCODE_CRF = '24'
+const ENCODE_PRESET = process.env.FFMPEG_PRESET || 'ultrafast'
+const ENCODE_CRF = process.env.FFMPEG_CRF || '21'
 
 const PORTRAIT_VF =
   `scale=${OUT_W}:${OUT_H}:force_original_aspect_ratio=decrease,pad=${OUT_W}:${OUT_H}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=${OUT_FPS},format=yuv420p`
 
-/** 横屏：低分辨率模糊底 + 居中清晰主体，避免强行拉伸 */
-const LANDSCAPE_VF =
-  `split=2[fg][tmp];[tmp]scale=${OUT_W}:${OUT_H}:force_original_aspect_ratio=increase,crop=${OUT_W}:${OUT_H},scale=360:640,boxblur=8:4,scale=${OUT_W}:${OUT_H}[bg];[fg]scale=680:-2:force_original_aspect_ratio=decrease[ov];[bg][ov]overlay=(W-w)/2:(H-h)/2,setsar=1,fps=${OUT_FPS},format=yuv420p`
+/** 横屏：黑边信箱模式，避免模糊叠层导致画面发灰发脏 */
+const LANDSCAPE_VF = PORTRAIT_VF
 
-/** FFmpeg 8.x curves 仅支持: none, lighter, darker, vintage 等，勿用已废弃的 soft_knee / linear */
+/** 轻量电影感调色（避免 curves/vignette 在部分 ffmpeg 构建上异常） */
 const STYLE_FILTERS = {
-  cinematic:
-    'eq=contrast=1.12:brightness=0.02:saturation=1.12,curves=preset=lighter,vignette=angle=PI/5',
-  japanese: 'eq=brightness=0.06:saturation=0.9:gamma=1.06,curves=preset=lighter',
-  study: 'eq=contrast=1.06:brightness=0.05:saturation=0.82,curves=preset=linear_contrast',
+  cinematic: 'eq=contrast=1.05:brightness=0.01:saturation=1.06',
+  japanese: 'eq=brightness=0.03:saturation=0.96:gamma=1.02',
+  study: 'eq=contrast=1.04:brightness=0.02:saturation=0.9',
 }
 
-const STYLE_FILTERS_FALLBACK = {
-  cinematic: 'eq=contrast=1.12:brightness=0.02:saturation=1.12',
-  japanese: 'eq=brightness=0.06:saturation=0.9:gamma=1.06',
-  study: 'eq=contrast=1.06:brightness=0.05:saturation=0.82',
-}
+const STYLE_FILTERS_FALLBACK = { ...STYLE_FILTERS }
 
 const TRANSITIONS = {
   fade: 'fade',
@@ -78,7 +72,7 @@ async function probeVideoMeta(filePath) {
     const parts = String(stdout).trim().split('x')
     const width = parseInt(parts[0], 10) || 1080
     const height = parseInt(parts[1], 10) || 1920
-    const orientation = width > height * 1.08 ? 'landscape' : 'portrait'
+    const orientation = width > height * 1.2 ? 'landscape' : 'portrait'
     return { width, height, orientation }
   } catch {
     return { width: 1080, height: 1920, orientation: 'portrait' }
@@ -107,17 +101,16 @@ async function getVideoDuration(filePath) {
   }
 }
 
-function colorGradeFilter(style) {
-  const key = STYLE_FILTERS[style] ? style : 'cinematic'
-  return STYLE_FILTERS_FALLBACK[key] || STYLE_FILTERS_FALLBACK.cinematic
+/** 仅统一分辨率与帧率，不做调色（保留原始画面观感） */
+function buildTranscodeVfChain(_style, isLandscape) {
+  const layoutVf = isLandscape ? LANDSCAPE_VF : PORTRAIT_VF
+  return [`${layoutVf}`]
 }
 
-async function transcodeClipToMp4(inputPath, outputPath, style = 'cinematic') {
+async function transcodeClipToMp4(inputPath, outputPath, _style = 'cinematic') {
   const meta = await probeVideoMeta(inputPath)
   const isLandscape = meta.orientation === 'landscape'
-  const grade = colorGradeFilter(style)
-  const layoutVf = isLandscape ? LANDSCAPE_VF : PORTRAIT_VF
-  const vf = `${layoutVf},${grade},format=yuv420p`
+  const vfCandidates = buildTranscodeVfChain(null, isLandscape)
 
   const baseArgs = [
     '-y',
@@ -137,16 +130,41 @@ async function transcodeClipToMp4(inputPath, outputPath, style = 'cinematic') {
     '+faststart',
   ]
 
-  const withVideo = [...baseArgs, '-vf', vf]
-
-  try {
-    await execFileAsync(
-      'ffmpeg',
-      [...withVideo, '-c:a', 'aac', '-b:a', '128k', '-ar', '44100', '-ac', '2', '-shortest', outputPath],
-      EXEC_OPTS,
-    )
-  } catch {
-    await execFileAsync('ffmpeg', [...withVideo, '-an', outputPath], EXEC_OPTS)
+  let encoded = false
+  for (const vf of vfCandidates) {
+    const withVideo = [...baseArgs, '-vf', vf]
+    try {
+      await execFileAsync(
+        'ffmpeg',
+        [
+          ...withVideo,
+          '-c:a',
+          'aac',
+          '-b:a',
+          '128k',
+          '-ar',
+          '44100',
+          '-ac',
+          '2',
+          '-shortest',
+          outputPath,
+        ],
+        EXEC_OPTS,
+      )
+      encoded = true
+      break
+    } catch {
+      try {
+        await execFileAsync('ffmpeg', [...withVideo, '-an', outputPath], EXEC_OPTS)
+        encoded = true
+        break
+      } catch {
+        /* try next vf */
+      }
+    }
+  }
+  if (!encoded) {
+    throw new Error('视频转码失败')
   }
 
   if (!(await probeHasAudio(outputPath))) {
@@ -356,6 +374,8 @@ async function concatClips(inputPaths, outputPath, options = {}) {
 
     if (tempMp4s.length === 1) {
       fs.copyFileSync(tempMp4s[0], outputPath)
+    } else if (process.env.VLOG_FAST_CONCAT !== 'false') {
+      await concatClipsDemuxer(tempMp4s, outputPath)
     } else {
       try {
         await concatWithXfade(tempMp4s, outputPath, transition)
@@ -939,7 +959,7 @@ async function muxDirectorFinalAudio(videoPath, outputPath, options = {}) {
   const bgmPath = options.bgmPath
   const narrationPath = options.narrationPath
   const ambientGain = Math.max(0.2, Math.min(1, options.ambientGain ?? 0.52))
-  const bgmGain = options.bgmGain ?? 0.62
+  const bgmGain = options.bgmGain ?? 0.78
   const fadeOut = Math.max(1, duration - 1.5).toFixed(2)
 
   if (!bgmPath && !narrationPath) {
@@ -1014,8 +1034,10 @@ async function muxDirectorFinalAudio(videoPath, outputPath, options = {}) {
 
   const weights =
     mixInputs.length === 2 && mixInputs[0] === '[amb]' && mixInputs[1] === '[bgm]'
-      ? 'weights=0.55 1.45'
-      : ''
+      ? 'weights=0.42 1.58'
+      : mixInputs.length === 2 && mixInputs[1] === '[bgm]'
+        ? 'weights=0.35 1.65'
+        : ''
   filters.push(
     `${mixInputs.join('')}amix=inputs=${mixInputs.length}:duration=first:dropout_transition=2:normalize=1${weights ? `:${weights}` : ''}[aout]`,
   )
@@ -1072,8 +1094,8 @@ async function burnTitleOverlay(videoPath, outputPath, titleText, durationSec = 
     const ok = await burnVideoOverlays(videoPath, outputPath, {
       titleText: text,
       titleDurationSec: durationSec,
-      titleFadeSec: 1,
-      timeline: [{ duration, caption: '', shotTitle: '' }],
+      titleFadeSec: 1.2,
+      timeline: [],
       cinematicTitle: true,
     })
     return ok
@@ -1107,13 +1129,14 @@ async function produceDirectorExport(inputPaths, outputPath, options = {}) {
     bgmPath: options.bgmPath,
     narrationPath: options.narrationPath,
     ambientGain,
-    bgmGain: moods.includes('concert') ? 0.42 : 0.62,
+    bgmGain: moods.includes('concert') || moods.includes('energetic') ? 0.58 : 0.82,
   })
 
   fs.copyFileSync(mixed, outputPath)
 
+  // 片头标题默认关闭；仅当 burnTitle === true 且显式传入 titleText 时才烧录
   let hasBurnedTitle = false
-  if (options.titleText) {
+  if (options.burnTitle === true && options.titleText) {
     const titled = `${outputPath}.title.mp4`
     hasBurnedTitle = await burnTitleOverlay(
       outputPath,
@@ -1143,6 +1166,159 @@ async function produceDirectorExport(inputPaths, outputPath, options = {}) {
   return { ...audioMeta, hasBurnedTitle }
 }
 
+/** 裁剪用户选取的片段（输出 720p MP4） */
+async function trimVideoClip(inputPath, outputPath, startSec, endSec) {
+  const start = Math.max(0, Number(startSec) || 0)
+  const end = Math.max(start + 0.5, Number(endSec) || start + 3)
+  const dur = (end - start).toFixed(3)
+
+  await execFileAsync(
+    'ffmpeg',
+    [
+      '-y',
+      '-ss',
+      start.toFixed(3),
+      '-i',
+      inputPath,
+      '-t',
+      dur,
+      '-c:v',
+      'libx264',
+      '-preset',
+      ENCODE_PRESET,
+      '-crf',
+      ENCODE_CRF,
+      '-vf',
+      `scale=${OUT_W}:${OUT_H}:force_original_aspect_ratio=decrease,pad=${OUT_W}:${OUT_H}:(ow-iw)/2:(oh-ih)/2,format=yuv420p`,
+      '-c:a',
+      'aac',
+      '-b:a',
+      '128k',
+      '-movflags',
+      '+faststart',
+      outputPath,
+    ],
+    EXEC_OPTS,
+  )
+
+  return outputPath
+}
+
+/** 片头标题卡 + concat copy，避免对整段成片重编码 */
+async function prependTitleCard(mainPath, outputPath, titleText, durationSec = 3.5) {
+  const text = String(titleText || '').trim()
+  if (!text) {
+    fs.copyFileSync(mainPath, outputPath)
+    return false
+  }
+
+  const workDir = path.dirname(outputPath)
+  const pngPath = path.join(workDir, `_title-png-${Date.now()}.png`)
+  const bumperPath = path.join(workDir, `_title-bumper-${Date.now()}.mp4`)
+  const { renderTitlePng } = require('./subtitleRenderService')
+
+  try {
+    await renderTitlePng(text, pngPath, { cinematic: true })
+    const dur = Math.max(2.5, Math.min(5, Number(durationSec) || 3.5)).toFixed(2)
+
+    await execFileAsync(
+      'ffmpeg',
+      [
+        '-y',
+        '-f',
+        'lavfi',
+        '-i',
+        `color=c=0x0a0a0a:s=${OUT_W}x${OUT_H}:d=${dur}`,
+        '-i',
+        pngPath,
+        '-f',
+        'lavfi',
+        '-i',
+        'anullsrc=r=44100:cl=stereo',
+        '-filter_complex',
+        `[1:v]scale=${OUT_W}:-1[ov];[0:v][ov]overlay=(W-w)/2:(H-h)/2-40:shortest=1[v]`,
+        '-map',
+        '[v]',
+        '-map',
+        '2:a',
+        '-c:v',
+        'libx264',
+        '-preset',
+        ENCODE_PRESET,
+        '-crf',
+        ENCODE_CRF,
+        '-pix_fmt',
+        'yuv420p',
+        '-c:a',
+        'aac',
+        '-b:a',
+        '128k',
+        '-ar',
+        '44100',
+        '-ac',
+        '2',
+        '-shortest',
+        '-movflags',
+        '+faststart',
+        bumperPath,
+      ],
+      EXEC_OPTS,
+    )
+
+    // 片头与成片均须带音轨，否则 concat copy 会丢掉整段 BGM
+    await concatClipsDemuxer([bumperPath, mainPath], outputPath)
+
+    if (!(await probeHasAudio(outputPath)) && (await probeHasAudio(mainPath))) {
+      console.warn('[ffmpeg] 片头拼接后无音轨，从成片回灌音频')
+      const repaired = `${outputPath}.audio.mp4`
+      await execFileAsync(
+        'ffmpeg',
+        [
+          '-y',
+          '-i',
+          outputPath,
+          '-i',
+          mainPath,
+          '-map',
+          '0:v',
+          '-map',
+          '1:a',
+          '-c:v',
+          'copy',
+          '-c:a',
+          'aac',
+          '-b:a',
+          '128k',
+          '-shortest',
+          repaired,
+        ],
+        EXEC_OPTS,
+      )
+      fs.copyFileSync(repaired, outputPath)
+      try {
+        fs.unlinkSync(repaired)
+      } catch {
+        /* ignore */
+      }
+    }
+
+    return true
+  } catch (err) {
+    console.warn('[ffmpeg] 片头标题卡失败，回退整片叠加:', trimExecError(err))
+    return burnTitleOverlay(mainPath, outputPath, text, durationSec)
+  } finally {
+    for (const p of [pngPath, bumperPath]) {
+      if (fs.existsSync(p)) {
+        try {
+          fs.unlinkSync(p)
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+  }
+}
+
 module.exports = {
   checkFfmpeg,
   concatClips,
@@ -1160,4 +1336,6 @@ module.exports = {
   STYLE_FILTERS,
   OUT_W,
   OUT_H,
+  trimVideoClip,
+  prependTitleCard,
 }

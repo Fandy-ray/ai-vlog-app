@@ -1,4 +1,4 @@
-import { Camera, ChevronRight, GraduationCap, Search, Sparkles } from 'lucide-react'
+import { Camera, ChevronRight, Clapperboard, Search, Sparkles } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { BottomNav } from '@/components/BottomNav'
 import { MemoryCard } from '@/components/MemoryCard'
@@ -55,24 +55,24 @@ export function HomePage() {
           </div>
         </button>
 
-        {/* 学习 Vlog */}
+        {/* AI 导拍 */}
         <button
           type="button"
-          onClick={() => navigate('/vlog-learn')}
-          className="mb-6 flex w-full items-center gap-3 rounded-[var(--radius-xl)] bg-surface p-4 text-left shadow-[var(--shadow-card)] transition-transform active:scale-[0.99]"
+          onClick={() => navigate('/ai-director/theme')}
+          className="mb-6 flex w-full items-center gap-3 rounded-[var(--radius-xl)] bg-gradient-to-r from-primary/8 via-surface to-accent/10 p-4 text-left shadow-[var(--shadow-card)] ring-1 ring-primary/15 transition-transform active:scale-[0.99]"
         >
-          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-accent/15 text-accent">
-            <GraduationCap size={22} strokeWidth={1.75} />
+          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-primary text-white shadow-[var(--shadow-soft)]">
+            <Clapperboard size={22} strokeWidth={1.75} />
           </span>
           <span className="min-w-0 flex-1">
             <span className="flex items-center gap-1.5">
-              <span className="text-sm font-semibold text-text">学习 Vlog</span>
-              <span className="rounded-full bg-primary/10 px-1.5 py-0.5 text-[9px] font-medium text-primary">
-                AI 导拍
+              <span className="text-sm font-semibold text-text">AI 导拍</span>
+              <span className="rounded-full bg-accent/15 px-1.5 py-0.5 text-[9px] font-medium text-accent">
+                定制主题
               </span>
             </span>
             <span className="mt-0.5 block text-xs text-text-muted">
-              九宫格构图 · 人物该放哪一格
+              选主题与风格 · AI 生成九宫格拍摄指引
             </span>
           </span>
           <ChevronRight size={18} className="shrink-0 text-text-muted" />
