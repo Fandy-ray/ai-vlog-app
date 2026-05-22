@@ -65,7 +65,7 @@ export const INITIAL_EDITOR_SNAPSHOT: EditorSnapshot = {
   stickerOverlays: [],
   keepOriginalAudio: true,
   originalAudioRange: { ...defaultRange },
-  bgmId: 'sunny-day',
+  bgmId: 'mixkit-travel-serene-view',
   bgmRange: { ...defaultRange },
   narrationText: null,
   narrationVoice: 'yige',

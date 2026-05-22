@@ -1,0 +1,50 @@
+[
+  {
+    "id": 443,
+    "file": "mixkit-travel-serene-view",
+    "category": "travel",
+    "mp3Url": "https://assets.mixkit.co/music/443/443.mp3",
+    "bytes": 3647991,
+    "ok": true
+  },
+  {
+    "id": 839,
+    "file": "mixkit-happy-tears-of-joy",
+    "category": "happy",
+    "mp3Url": "https://assets.mixkit.co/music/839/839.mp3",
+    "bytes": 4485656,
+    "ok": true
+  },
+  {
+    "id": 607,
+    "file": "mixkit-calm-forest-walk",
+    "category": "calm",
+    "mp3Url": "https://assets.mixkit.co/music/607/607.mp3",
+    "bytes": 5577546,
+    "ok": true
+  },
+  {
+    "id": 970,
+    "file": "mixkit-urban-night-sky",
+    "category": "urban",
+    "mp3Url": "https://assets.mixkit.co/music/970/970.mp3",
+    "bytes": 8230525,
+    "ok": true
+  },
+  {
+    "id": 288,
+    "file": "mixkit-upbeat-one-more-dance",
+    "category": "upbeat",
+    "mp3Url": "https://assets.mixkit.co/music/288/288.mp3",
+    "bytes": 3210806,
+    "ok": true
+  },
+  {
+    "id": 724,
+    "file": "mixkit-cinematic-orchestral",
+    "category": "cinematic",
+    "mp3Url": "https://assets.mixkit.co/music/724/724.mp3",
+    "bytes": 3839999,
+    "ok": true
+  }
+]

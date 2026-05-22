@@ -729,6 +729,7 @@ export function EditorPage() {
     setDraftBgmId(appliedBgmId)
     setDraftOriginalAudioRange(appliedOriginalAudioRange)
     setDraftBgmRange(appliedBgmRange)
+    setActiveFeature((prev) => (prev === 'music' ? null : prev))
     closeAllPanels()
   }
 
@@ -1667,6 +1668,26 @@ export function EditorPage() {
     ],
   )
 
+  const handleFeatureSelect = (id: string, label: string) => {
+    if (id === 'music') {
+      if (activeTool === 'audio') {
+        cancelAudioPanel()
+        show('???????')
+      } else {
+        setActiveFeature('music')
+        openAudioPanel()
+        show('???????')
+      }
+      return
+    }
+    if (id === 'narration') {
+      openNarrationPanel()
+      return
+    }
+    setActiveFeature(id)
+    show(`${label} ?????? AI ??`)
+  }
+
   const handleToolSelect = (id: string, label: string) => {
     if (id === 'filter') {
       if (activeTool === 'filter') cancelFilterPanel()
@@ -2041,7 +2062,10 @@ export function EditorPage() {
         onToggleEditTitle={handleToggleEditTitle}
       />
 
-      <div data-editor-page="" className="contents">
+      <div
+        data-editor-page=""
+        className="flex min-h-0 flex-1 flex-col overflow-hidden"
+      >
       <VideoPreview
         poster={activeClip.poster}
         videoSrc={activeClip.videoSrc}
@@ -2103,17 +2127,7 @@ export function EditorPage() {
         onChange={(e) => void handleImportFiles(e.target.files)}
       />
 
-      <AIFeatureBar
-        activeId={activeFeature}
-        onSelect={(id, label) => {
-          if (id === 'narration') {
-            openNarrationPanel()
-            return
-          }
-          setActiveFeature(id)
-          show(`${label} ?????? AI ??`)
-        }}
-      />
+      <AIFeatureBar activeId={activeFeature} onSelect={handleFeatureSelect} />
 
       <Timeline
         clips={clips}
@@ -2137,99 +2151,98 @@ export function EditorPage() {
         onOverlayClipDragEnd={handleOverlayClipDragEnd}
       />
 
-      {showEffectPanel && (
-        <EffectPanel
-          effects={EFFECT_PRESETS}
-          selectedId={draftEffectId}
-          filterCss={getFilterCss(previewFilterId)}
-          onSelect={setDraftEffectId}
-          onConfirm={confirmEffectPanel}
-          onClose={cancelEffectPanel}
-        />
-      )}
+      <div className="flex shrink-0 flex-col">
+        {showEffectPanel && (
+          <EffectPanel
+            effects={EFFECT_PRESETS}
+            selectedId={draftEffectId}
+            filterCss={getFilterCss(previewFilterId)}
+            onSelect={setDraftEffectId}
+            onConfirm={confirmEffectPanel}
+            onClose={cancelEffectPanel}
+          />
+        )}
 
-      {showFilterPanel && (
-        <FilterPanel
-          filters={FILTER_PRESETS}
-          selectedId={draftFilterId}
-          intensity={draftIntensity}
-          onSelect={handleFilterSelect}
-          onIntensityChange={setDraftIntensity}
-          onConfirm={confirmFilterPanel}
-          onClose={cancelFilterPanel}
-        />
-      )}
+        {showFilterPanel && (
+          <FilterPanel
+            filters={FILTER_PRESETS}
+            selectedId={draftFilterId}
+            intensity={draftIntensity}
+            onSelect={handleFilterSelect}
+            onIntensityChange={setDraftIntensity}
+            onConfirm={confirmFilterPanel}
+            onClose={cancelFilterPanel}
+          />
+        )}
 
-      {showStickerPanel && (
-        <StickerPanel
-          draft={draftSticker}
-          videoDuration={projectDuration}
-          currentTime={currentTime}
-          onPick={handleStickerPick}
-          onRangeChange={(range) => {
-            setDraftSticker((prev) =>
-              prev
-                ? {
-                    ...prev,
-                    startTime: range.startTime,
-                    endTime: range.endTime,
-                  }
-                : prev,
-            )
-          }}
-          onRemove={() => setDraftSticker(null)}
-          onConfirm={confirmStickerPanel}
-          onClose={cancelStickerPanel}
-        />
-      )}
+        {showStickerPanel && (
+          <StickerPanel
+            draft={draftSticker}
+            videoDuration={projectDuration}
+            currentTime={currentTime}
+            onPick={handleStickerPick}
+            onRangeChange={(range) => {
+              setDraftSticker((prev) =>
+                prev
+                  ? {
+                      ...prev,
+                      startTime: range.startTime,
+                      endTime: range.endTime,
+                    }
+                  : prev,
+              )
+            }}
+            onRemove={() => setDraftSticker(null)}
+            onConfirm={confirmStickerPanel}
+            onClose={cancelStickerPanel}
+          />
+        )}
 
-      {showTextPanel && (
-        <TextPanel
-          draft={draftText}
-          videoDuration={projectDuration}
-          currentTime={currentTime}
-          onChange={handleDraftTextChange}
-          onRemove={() => setDraftText(null)}
-          onConfirm={confirmTextPanel}
-          onClose={cancelTextPanel}
-        />
-      )}
+        {showTextPanel && (
+          <TextPanel
+            draft={draftText}
+            videoDuration={projectDuration}
+            currentTime={currentTime}
+            onChange={handleDraftTextChange}
+            onRemove={() => setDraftText(null)}
+            onConfirm={confirmTextPanel}
+            onClose={cancelTextPanel}
+          />
+        )}
 
-      {showAudioPanel && (
-        <AudioPanel
-          keepOriginalAudio={draftKeepOriginalAudio}
-          selectedBgmId={draftBgmId}
-          originalAudioRange={draftOriginalAudioRange}
-          bgmRange={draftBgmRange}
-          videoDuration={projectDuration}
-          onKeepOriginalChange={setDraftKeepOriginalAudio}
-          onBgmSelect={setDraftBgmId}
-          onOriginalRangeChange={setDraftOriginalAudioRange}
-          onBgmRangeChange={setDraftBgmRange}
-          onConfirm={confirmAudioPanel}
-          onClose={cancelAudioPanel}
-        />
-      )}
+        {showAudioPanel && (
+          <AudioPanel
+            keepOriginalAudio={draftKeepOriginalAudio}
+            selectedBgmId={draftBgmId}
+            originalAudioRange={draftOriginalAudioRange}
+            bgmRange={draftBgmRange}
+            videoDuration={projectDuration}
+            onKeepOriginalChange={setDraftKeepOriginalAudio}
+            onBgmSelect={setDraftBgmId}
+            onOriginalRangeChange={setDraftOriginalAudioRange}
+            onBgmRangeChange={setDraftBgmRange}
+            onConfirm={confirmAudioPanel}
+            onClose={cancelAudioPanel}
+          />
+        )}
 
-      {showNarrationPanel && (
-        <NarrationPanel
-          text={draftNarrationText}
-          voice={draftNarrationVoice}
-          engineId={draftNarrationEngineId}
-          enabled={draftNarrationEnabled}
-          onTextChange={setDraftNarrationText}
-          onVoiceChange={setDraftNarrationVoice}
-          onEngineChange={setDraftNarrationEngineId}
-          onEnabledChange={setDraftNarrationEnabled}
-          onConfirm={confirmNarrationPanel}
-          onClose={cancelNarrationPanel}
-        />
-      )}
+        {showNarrationPanel && (
+          <NarrationPanel
+            text={draftNarrationText}
+            voice={draftNarrationVoice}
+            engineId={draftNarrationEngineId}
+            enabled={draftNarrationEnabled}
+            onTextChange={setDraftNarrationText}
+            onVoiceChange={setDraftNarrationVoice}
+            onEngineChange={setDraftNarrationEngineId}
+            onEnabledChange={setDraftNarrationEnabled}
+            onConfirm={confirmNarrationPanel}
+            onClose={cancelNarrationPanel}
+          />
+        )}
 
-      <BottomToolbar
-        activeTool={activeTool}
-        onSelect={handleToolSelect}
-      />
+        <BottomToolbar activeTool={activeTool} onSelect={handleToolSelect} />
+      </div>
 
       <ExportDialog
         open={exporting}

@@ -10,7 +10,9 @@
     "qa:build": "hap build",
     "qa:watch": "hap watch",
     "qa:server": "hap server --watch",
-    "server": "hap server --watch"
+    "server": "hap server --watch",
+    "audio:fetch": "node scripts/fetch-mixkit-tracks.mjs",
+    "postinstall": "node scripts/ensure-audio-assets.mjs"
   },
   "dependencies": {
     "@ffmpeg/core": "^0.12.6",

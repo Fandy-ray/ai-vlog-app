@@ -9,6 +9,7 @@ const guideRouter = require('./routes/guide')
 const generateRouter = require('./routes/generate')
 const exportRouter = require('./routes/export')
 const narrationRouter = require('./routes/narration')
+const musicRouter = require('./routes/music')
 const path = require('path')
 
 const app = express()
@@ -22,6 +23,7 @@ app.use('/api', guideRouter)
 app.use('/api', generateRouter)
 app.use('/api', exportRouter)
 app.use('/api', narrationRouter)
+app.use('/api', musicRouter)
 app.use('/exports', express.static(path.join(__dirname, '../exports')))
 
 app.get('/', (req, res) => {

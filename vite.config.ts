@@ -12,6 +12,10 @@ export default defineConfig({
     exclude: ['@ffmpeg/ffmpeg', '@ffmpeg/util'],
   },
   server: {
+    host: true,
+    port: 5173,
+    strictPort: false,
+    open: '/',
     proxy: {
       '/api': {
         target: 'http://127.0.0.1:3000',
