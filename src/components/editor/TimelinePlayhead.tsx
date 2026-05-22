@@ -1,6 +1,11 @@
 import { useCallback, useState } from 'react'
 import { clamp, formatTime } from '@/utils/formatTime'
-import { timeFromPointer, timeToTimelinePercent } from '@/utils/timelineRuler'
+import {
+  timeFromContentPointer,
+  timeFromPointer,
+  timeToContentPercent,
+  timeToTimelinePercent,
+} from '@/utils/timelineRuler'
 
 interface TimelinePlayheadProps {
   currentTime: number
@@ -9,6 +14,7 @@ interface TimelinePlayheadProps {
   snapActive?: boolean
   onSeek: (time: number) => void
   onSeekEnd?: () => void
+  contentArea?: boolean
 }
 
 export function TimelinePlayhead({
@@ -18,18 +24,23 @@ export function TimelinePlayhead({
   snapActive = false,
   onSeek,
   onSeekEnd,
+  contentArea = false,
 }: TimelinePlayheadProps) {
   const [dragging, setDragging] = useState(false)
-  const leftPct = timeToTimelinePercent(currentTime, duration)
+  const timeToPercent = contentArea ? timeToContentPercent : timeToTimelinePercent
+  const timeFromClientX = contentArea ? timeFromContentPointer : timeFromPointer
+  const leftPct = timeToPercent(currentTime, duration)
 
   const seekFromClientX = useCallback(
     (clientX: number) => {
       const el = areaRef.current
       if (!el || duration <= 0) return
-      const time = Math.round(clamp(timeFromPointer(clientX, el, duration), 0, duration))
+      const time = Math.round(
+        clamp(timeFromClientX(clientX, el, duration), 0, duration),
+      )
       onSeek(time)
     },
-    [areaRef, duration, onSeek],
+    [areaRef, duration, onSeek, timeFromClientX],
   )
 
   const handlePointerDown = (e: React.PointerEvent) => {
@@ -53,7 +64,7 @@ export function TimelinePlayhead({
 
   return (
     <div
-      className="pointer-events-none absolute inset-0 z-30"
+      className="pointer-events-none absolute inset-0 z-40"
       aria-hidden={!dragging}
     >
       <div
@@ -68,23 +79,24 @@ export function TimelinePlayhead({
         aria-valuenow={Math.round(currentTime)}
         aria-valuetext={formatTime(currentTime)}
       >
-        {/* 竖线与圆点共用 left:50% + translateX(-50%)，视觉中心与定位点一致 */}
+        {/* 圆点在指针顶端；竖线从圆点下缘贯穿刻度与轨道 */}
         <span
-          className={`absolute left-1/2 top-3 bottom-0 w-0.5 -translate-x-1/2 transition-colors ${
+          className={`pointer-events-none absolute left-1/2 top-0 z-50 block h-3 w-3 -translate-x-1/2 rounded-full border-2 border-white bg-primary transition-transform ${
+            snapActive ? 'scale-125 shadow-[0_0_8px_rgba(94,124,224,0.9)]' : 'shadow-sm'
+          }`}
+          aria-hidden
+        />
+        <span
+          className={`pointer-events-none absolute left-1/2 top-3 bottom-0 block w-0.5 -translate-x-1/2 transition-colors ${
             snapActive
               ? 'w-1 bg-primary shadow-[0_0_10px_rgba(94,124,224,0.95)]'
               : 'bg-primary shadow-[0_0_6px_rgba(94,124,224,0.6)]'
           }`}
           aria-hidden
         />
-        <span
-          className={`absolute left-1/2 top-0 z-10 h-3 w-3 -translate-x-1/2 rounded-full border-2 border-white bg-primary transition-transform ${
-            snapActive ? 'scale-125 shadow-[0_0_8px_rgba(94,124,224,0.9)]' : 'shadow-sm'
-          }`}
-        />
 
         {dragging && (
-          <span className="absolute left-1/2 top-7 z-40 -translate-x-1/2 whitespace-nowrap rounded bg-primary px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-white shadow-md">
+          <span className="absolute left-1/2 top-7 z-50 -translate-x-1/2 whitespace-nowrap rounded bg-primary px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-white shadow-md">
             {formatTime(currentTime)}
           </span>
         )}

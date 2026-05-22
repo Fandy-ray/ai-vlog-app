@@ -1,6 +1,6 @@
 import { formatBgmLabel, getNetworkAudio } from '@/data/audioLibrary'
 import { getStickerPreset } from '@/data/stickers'
-import type { StickerOverlay, TextOverlay } from '@/types/editorState'
+import type { EditorSnapshot, StickerOverlay, TextOverlay } from '@/types/editorState'
 import type { TimeRange } from '@/utils/timeRange'
 import type {
   TimelineDisplayClip,
@@ -127,9 +127,51 @@ export function hasTimelineClipMenu(kind: TimelineOverlayKind): boolean {
   return (TIMELINE_MENU_CLIP_KINDS as TimelineOverlayKind[]).includes(kind)
 }
 
-export const TIMELINE_CLIP_ROW_KINDS: TimelineOverlayKind[] = [
-  'originalAudio',
-  'text',
-  'sticker',
-  'bgm',
-]
+export function bgmTimelineClipId(bgmId: string) {
+  return `bgm-${bgmId}`
+}
+
+/** 从快照收集叠加轨 clip id（不含原声） */
+export function collectOverlayTrackIds(snapshot: EditorSnapshot): string[] {
+  const ids: string[] = []
+  for (const t of snapshot.textOverlays) ids.push(t.id)
+  for (const s of snapshot.stickerOverlays) ids.push(s.id)
+  if (snapshot.bgmId) ids.push(bgmTimelineClipId(snapshot.bgmId))
+  return ids
+}
+
+/** 合并保存的顺序与当前素材，新加的排在末尾 */
+export function reconcileOverlayTrackOrder(snapshot: EditorSnapshot): string[] {
+  const valid = new Set(collectOverlayTrackIds(snapshot))
+  const order = (snapshot.overlayTrackOrder ?? []).filter((id) => valid.has(id))
+  for (const id of valid) {
+    if (!order.includes(id)) order.push(id)
+  }
+  return order
+}
+
+/** 原声轨置顶，其余按添加顺序每条一行 */
+export function orderTimelineOverlayClips(
+  clips: TimelineDisplayClip[],
+  trackOrder: string[],
+): TimelineDisplayClip[] {
+  const original = clips.find((c) => c.kind === 'originalAudio')
+  const byId = new Map(
+    clips.filter((c) => c.kind !== 'originalAudio').map((c) => [c.id, c]),
+  )
+  const ordered: TimelineDisplayClip[] = []
+  const seen = new Set<string>()
+
+  for (const id of trackOrder) {
+    const clip = byId.get(id)
+    if (clip) {
+      ordered.push(clip)
+      seen.add(id)
+    }
+  }
+  for (const clip of byId.values()) {
+    if (!seen.has(clip.id)) ordered.push(clip)
+  }
+
+  return original ? [original, ...ordered] : ordered
+}

@@ -1,9 +1,8 @@
-import { useRef } from 'react'
+import { useEffect, useRef } from 'react'
 import type { TimelineDisplayClip } from '@/types/timelineDisplay'
 import type { PlayheadSnapEdge } from '@/utils/playheadSnap'
 import {
   isDraggableClipKind,
-  TIMELINE_CLIP_ROW_KINDS,
   type TimelineClipDragMode,
 } from '@/utils/timelineDisplay'
 import { TimelineObjectBar } from './TimelineObjectBar'
@@ -34,6 +33,7 @@ interface TimelineObjectTracksProps {
     clientX: number,
     trackWidthPx: number,
   ) => void
+  onTracksWidthChange?: (widthPx: number) => void
 }
 
 export function TimelineObjectTracks({
@@ -47,52 +47,61 @@ export function TimelineObjectTracks({
   onClipDragStart,
   onClipDragMove,
   onClipDragEnd,
+  onTracksWidthChange,
 }: TimelineObjectTracksProps) {
   const trackRef = useRef<HTMLDivElement>(null)
 
-  const rows = TIMELINE_CLIP_ROW_KINDS.map((kind) => ({
-    kind,
-    clips: clips.filter((c) => c.kind === kind),
-  })).filter((row) => row.clips.length > 0)
+  useEffect(() => {
+    const el = trackRef.current
+    if (!el || !onTracksWidthChange) return
 
-  if (rows.length === 0) return null
+    const report = () => {
+      const w = el.getBoundingClientRect().width
+      if (w > 0) onTracksWidthChange(w)
+    }
+
+    report()
+    const ro = new ResizeObserver(report)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [onTracksWidthChange])
+
+  if (clips.length === 0) return null
 
   return (
     <section
       ref={trackRef}
-      className="shrink-0 pb-1"
-      aria-label="文字贴纸配乐轨道"
+      className="mt-1 shrink-0 pb-1 pt-0.5"
+      aria-label="叠加轨道"
     >
-      {rows.map((row) => (
+      {clips.map((clip) => (
         <div
-          key={row.kind}
+          key={clip.id}
           data-timeline-overlay-track-row=""
+          data-timeline-track-kind={clip.kind}
           className={`relative w-full ${ROW_HEIGHT_CLASS} ${ROW_GAP_CLASS}`}
         >
-          {row.clips.map((clip) => (
-            <TimelineObjectBar
-              key={clip.id}
-              clip={clip}
-              duration={duration}
-              trackRef={trackRef}
-              isDragging={draggingClipId === clip.id}
-              playheadSnapEdge={
-                draggingClipId === clip.id ? playheadSnapEdge : null
-              }
-              onClick={onClipClick}
-              onDoubleClick={onClipDoubleClick}
-              onOpenMenu={onClipOpenMenu}
-              onDragStart={
-                isDraggableClipKind(clip.kind) ? onClipDragStart : undefined
-              }
-              onDragMove={
-                isDraggableClipKind(clip.kind) ? onClipDragMove : undefined
-              }
-              onDragEnd={
-                isDraggableClipKind(clip.kind) ? onClipDragEnd : undefined
-              }
-            />
-          ))}
+          <TimelineObjectBar
+            clip={clip}
+            duration={duration}
+            trackRef={trackRef}
+            isDragging={draggingClipId === clip.id}
+            playheadSnapEdge={
+              draggingClipId === clip.id ? playheadSnapEdge : null
+            }
+            onClick={onClipClick}
+            onDoubleClick={onClipDoubleClick}
+            onOpenMenu={onClipOpenMenu}
+            onDragStart={
+              isDraggableClipKind(clip.kind) ? onClipDragStart : undefined
+            }
+            onDragMove={
+              isDraggableClipKind(clip.kind) ? onClipDragMove : undefined
+            }
+            onDragEnd={
+              isDraggableClipKind(clip.kind) ? onClipDragEnd : undefined
+            }
+          />
         </div>
       ))}
     </section>

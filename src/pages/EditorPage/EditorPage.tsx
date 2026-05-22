@@ -19,8 +19,16 @@ import {
 } from '@/state/importedProject'
 import { DEFAULT_CROP } from '@/types/clipTransform'
 import type { NormalizedCrop } from '@/types/clipTransform'
-import { normalizeCrop } from '@/utils/videoFit'
-import { setClipCrop } from '@/utils/clipOperations'
+import { refineCropToFillFrame } from '@/utils/videoFit'
+import type { TimelineToolId } from '@/components/editor/TimelineToolbar'
+import {
+  deleteClipById,
+  rotateClip,
+  setClipCrop,
+  setClipPlaybackRate,
+  splitClipAt,
+  toggleClipMirror,
+} from '@/utils/clipOperations'
 import {
   appendClipsFromImports,
   probeVideoFile,
@@ -48,7 +56,6 @@ import {
   type StickerPreviewItem,
   type TextPreviewItem,
 } from '@/components/editor/VideoPreview'
-import { formatBgmLabel, getNetworkAudio } from '@/data/audioLibrary'
 import { EFFECT_PRESETS } from '@/data/effects'
 import { FILTER_PRESETS, getFilterCss } from '@/data/filters'
 import {
@@ -56,7 +63,18 @@ import {
   getStickerPreset,
 } from '@/data/stickers'
 import { createDefaultTextOverlay } from '@/data/textStyles'
+import {
+  DEFAULT_NARRATION_DRAFT_TEXT,
+  EXPORT_MESSAGE_CANCELLING,
+  EXPORT_MESSAGE_PREPARING,
+} from '@/constants/editorDefaults'
+import { editorToasts } from '@/constants/editorToasts'
 import { usePlayback } from '@/hooks/usePlayback'
+import { usePreviewBgm } from '@/hooks/usePreviewBgm'
+import {
+  getPreviewBgmVolume,
+  getPreviewVideoVolume,
+} from '@/utils/previewAudioMix'
 import { useToast } from '@/hooks/useToast'
 import { useUndoRedo } from '@/hooks/useUndoRedo'
 import type { EditorSnapshot, StickerOverlay, TextOverlay } from '@/types/editorState'
@@ -66,6 +84,8 @@ import {
   hasTimelineClipMenu,
   isDraggableClipKind,
   originalAudioToDisplayClip,
+  orderTimelineOverlayClips,
+  reconcileOverlayTrackOrder,
   stickerToDisplayClip,
   textToDisplayClip,
   type TimelineClipDragMode,
@@ -77,10 +97,12 @@ import {
 } from '@/utils/overlayActions'
 import { shouldClearSelectionOnClick } from '@/utils/editorSelectionHitTest'
 import {
+  buildClipDragSnapTargets,
   collectSnapTargetTimes,
-  isPlayheadSnapClipKind,
   snapPlayheadTime,
-  snapRangeToPlayhead,
+  snapRangeToTargetTimes,
+  snapThresholdSecFromPx,
+  TIMELINE_SNAP_THRESHOLD_PX,
   type PlayheadSnapEdge,
 } from '@/utils/playheadSnap'
 import { isTimelineClipUserSelected } from '@/utils/timelineClipSelection'
@@ -88,6 +110,7 @@ import { timeDeltaFromPointerDrag } from '@/utils/timelineRuler'
 import {
   createDefaultTimeRange,
   createDefaultTimeRangeFromPlayhead,
+  isActiveAtTime,
   normalizeTimeRange,
   overlayWithNormalizedRange,
   resizeTimeRange,
@@ -155,7 +178,7 @@ function normalizeSnapshot(
   const legacy = s as LegacyEditorSnapshot
   const fallback = createDefaultTimeRange(duration)
   const { textOverlay: _legacyText, ...base } = legacy
-  return {
+  const normalized: EditorSnapshot = {
     ...base,
     originalAudioRange: normalizeTimeRange(
       legacy.originalAudioRange ?? fallback,
@@ -169,6 +192,10 @@ function normalizeSnapshot(
       overlayWithNormalizedRange({ ...st }, duration),
     ),
   }
+  return {
+    ...normalized,
+    overlayTrackOrder: reconcileOverlayTrackOrder(normalized),
+  }
 }
 
 function buildSnapshot(
@@ -177,6 +204,22 @@ function buildSnapshot(
   duration: number = PROJECT_DURATION,
 ): EditorSnapshot {
   return normalizeSnapshot({ ...base, ...patch }, duration)
+}
+
+function createInitialEditorSnapshot(
+  project: ReturnType<typeof getEditorProject>,
+): EditorSnapshot {
+  const session = normalizeSnapshot(getEditorSession())
+  const clips = project?.clips ?? VIDEO_CLIPS
+  const duration = project?.duration ?? PROJECT_DURATION
+  return normalizeSnapshot(
+    {
+      ...session,
+      videoClips: session.videoClips?.length ? session.videoClips : clips,
+      videoDuration: session.videoDuration ?? duration,
+    },
+    duration,
+  )
 }
 
 function cloneOverlay(o: TextOverlay): TextOverlay {
@@ -212,6 +255,22 @@ export function EditorPage() {
   const [isCropMode, setIsCropMode] = useState(false)
   const [draftCrop, setDraftCrop] = useState<NormalizedCrop>(DEFAULT_CROP)
   const [cropClipId, setCropClipId] = useState<string | null>(null)
+  const [selectedVideoClipId, setSelectedVideoClipId] = useState<string | null>(
+    null,
+  )
+  /** ? true ???????????? false ??????? */
+  const [highlightFollowsPlayhead, setHighlightFollowsPlayhead] =
+    useState(false)
+  const [previewSourceAspect, setPreviewSourceAspect] = useState(16 / 9)
+
+  useEffect(() => {
+    if (
+      selectedVideoClipId &&
+      !clips.some((c) => c.id === selectedVideoClipId)
+    ) {
+      setSelectedVideoClipId(null)
+    }
+  }, [clips, selectedVideoClipId])
 
   useEffect(() => {
     if (!hasEditorProject()) {
@@ -226,7 +285,7 @@ export function EditorPage() {
     redo,
     canUndo,
     canRedo,
-  } = useUndoRedo<EditorSnapshot>(normalizeSnapshot(getEditorSession()))
+  } = useUndoRedo<EditorSnapshot>(createInitialEditorSnapshot(initialProject))
 
   useEffect(() => {
     setEditorSession(snapshot)
@@ -250,8 +309,7 @@ export function EditorPage() {
   )
   const [draftBgmRange, setDraftBgmRange] = useState(snapshot.bgmRange)
   const [draftNarrationText, setDraftNarrationText] = useState(
-    snapshot.narrationText ??
-      '???????????????????????????',
+    snapshot.narrationText ?? DEFAULT_NARRATION_DRAFT_TEXT,
   )
   const [draftNarrationVoice, setDraftNarrationVoice] = useState(snapshot.narrationVoice)
   const [draftNarrationEngineId, setDraftNarrationEngineId] = useState(
@@ -289,6 +347,7 @@ export function EditorPage() {
   const [exportProgress, setExportProgress] = useState(0)
   const [exportMessage, setExportMessage] = useState('')
   const exportCancelledRef = useRef(false)
+  const timelineContentWidthPxRef = useRef(320)
 
   const closeContextMenu = useCallback(() => setContextMenu(null), [])
 
@@ -349,6 +408,70 @@ export function EditorPage() {
     projectDuration,
     31,
   )
+
+  useEffect(() => {
+    if (isPlaying) setHighlightFollowsPlayhead(true)
+  }, [isPlaying])
+
+  const previewHasBgm = Boolean(previewBgmId)
+  const previewBgmInRange =
+    previewHasBgm && isActiveAtTime(currentTime, effectiveBgmRange)
+  const previewMixWithBgm =
+    previewHasBgm && previewKeepOriginalAudio && previewBgmInRange
+
+  const previewBgmVolume = useMemo(
+    () => getPreviewBgmVolume(previewHasBgm, previewKeepOriginalAudio),
+    [previewHasBgm, previewKeepOriginalAudio],
+  )
+
+  const previewVideoVolume = useMemo(
+    () => getPreviewVideoVolume(previewKeepOriginalAudio, previewMixWithBgm),
+    [previewKeepOriginalAudio, previewMixWithBgm],
+  )
+
+  usePreviewBgm({
+    bgmId: previewBgmId,
+    bgmRange: effectiveBgmRange,
+    currentTime,
+    isPlaying,
+    volume: previewBgmVolume,
+  })
+
+  const pushEditorHistory = useCallback(
+    (patch: Partial<EditorSnapshot>, duration: number = projectDuration) => {
+      pushHistory(
+        buildSnapshot(
+          snapshot,
+          {
+            videoClips: clips,
+            videoDuration: duration,
+            ...patch,
+          },
+          duration,
+        ),
+      )
+    },
+    [snapshot, clips, projectDuration, pushHistory],
+  )
+
+  const syncClipsFromSnapshot = useCallback(() => {
+    if (!snapshot.videoClips?.length) return
+    setClips(snapshot.videoClips)
+    const dur = snapshot.videoDuration ?? projectDuration
+    setProjectDuration(dur)
+    updateEditorProject({ clips: snapshot.videoClips, duration: dur })
+    if (currentTime > dur) seek(dur)
+  }, [
+    snapshot.videoClips,
+    snapshot.videoDuration,
+    projectDuration,
+    currentTime,
+    seek,
+  ])
+
+  useEffect(() => {
+    syncClipsFromSnapshot()
+  }, [syncClipsFromSnapshot])
 
   const previewTextItems = useMemo((): TextPreviewItem[] => {
     const editingDraftId = isTextPanelEditing && draftText ? draftText.id : null
@@ -493,7 +616,14 @@ export function EditorPage() {
       )
     }
 
-    return clips
+    const trackOrder = reconcileOverlayTrackOrder({
+      ...snapshot,
+      textOverlays: previewTextItems.map((item) => item.overlay),
+      stickerOverlays: previewStickerItems.map((item) => item.overlay),
+      bgmId: previewBgmId,
+    })
+
+    return orderTimelineOverlayClips(clips, trackOrder)
   }, [
     effectiveOriginalAudioRange,
     previewKeepOriginalAudio,
@@ -503,6 +633,7 @@ export function EditorPage() {
     effectiveBgmRange,
     clipSelectionState,
     projectDuration,
+    snapshot,
   ])
 
   const activeClip = useMemo(
@@ -510,10 +641,31 @@ export function EditorPage() {
     [currentTime, clips, projectDuration],
   )
 
+  const activePlaybackRate = activeClip.playbackRate ?? 1
+
   const clipTime = Math.max(
     0,
-    (activeClip.sourceOffset ?? 0) + currentTime - activeClip.start,
+    (activeClip.sourceOffset ?? 0) +
+      (currentTime - activeClip.start) * activePlaybackRate,
   )
+
+  const selectedVideoClip = useMemo(
+    () => clips.find((c) => c.id === selectedVideoClipId) ?? null,
+    [clips, selectedVideoClipId],
+  )
+
+  const canSplitSelectedClip = useMemo(() => {
+    if (!selectedVideoClip) return false
+    const t = currentTime
+    return (
+      t > selectedVideoClip.start + 0.35 &&
+      t < selectedVideoClip.start + selectedVideoClip.duration - 0.35
+    )
+  }, [selectedVideoClip, currentTime])
+
+  const canDeleteSelectedClip = clips.length > 1 && !!selectedVideoClipId
+
+  const selectedClipPlaybackRate = selectedVideoClip?.playbackRate ?? 1
 
   const previewClipTransform = useMemo(() => {
     if (isCropMode && cropClipId === activeClip.id) {
@@ -534,9 +686,13 @@ export function EditorPage() {
       setClips(nextClips)
       setProjectDuration(duration)
       updateEditorProject({ clips: nextClips, duration })
+      pushEditorHistory(
+        { videoClips: nextClips, videoDuration: duration },
+        duration,
+      )
       if (currentTime > duration) seek(duration)
     },
-    [currentTime, seek],
+    [currentTime, seek, pushEditorHistory],
   )
 
   const handleImportClick = useCallback(() => {
@@ -551,7 +707,7 @@ export function EditorPage() {
       try {
         const list = Array.from(files).filter((file) => file.type.startsWith('video/'))
         if (!list.length) {
-          show('????????mp4?mov ??')
+          show(editorToasts.importVideoOnly)
           return
         }
 
@@ -559,9 +715,9 @@ export function EditorPage() {
         const { clips: nextClips, duration } = appendClipsFromImports(clips, imported)
 
         applyClipsUpdate(nextClips, duration)
-        show(`??? ${imported.length} ?????`)
+        show(editorToasts.importSuccess(imported.length))
       } catch {
-        show('???????????????????')
+        show(editorToasts.importFailed)
       } finally {
         setImportingVideos(false)
         if (importInputRef.current) importInputRef.current.value = ''
@@ -572,31 +728,54 @@ export function EditorPage() {
 
   const handleCropConfirm = useCallback(() => {
     if (!cropClipId) return
-    const next = setClipCrop(clips, cropClipId, normalizeCrop(draftCrop))
-    setClips(next)
-    updateEditorProject({ clips: next, duration: projectDuration })
+    const clip = clips.find((c) => c.id === cropClipId)
+    const refined = refineCropToFillFrame(
+      draftCrop,
+      previewSourceAspect,
+      16 / 9,
+      clip?.transform?.rotation ?? 0,
+    )
+    const next = setClipCrop(clips, cropClipId, refined)
+    applyClipsUpdate(next, projectDuration)
     setIsCropMode(false)
     setCropClipId(null)
-    show('?????')
-  }, [cropClipId, clips, draftCrop, projectDuration, show])
+    show(editorToasts.cropApplied)
+  }, [
+    cropClipId,
+    clips,
+    draftCrop,
+    previewSourceAspect,
+    projectDuration,
+    show,
+    applyClipsUpdate,
+  ])
 
   const handleCropCancel = useCallback(() => {
     setIsCropMode(false)
     setCropClipId(null)
-    show('?????')
-  }, [show])
+  }, [])
 
   const playheadSnapTargetTimes = useMemo(
-    () => collectSnapTargetTimes(timelineOverlayClips),
-    [timelineOverlayClips],
+    () =>
+      collectSnapTargetTimes(timelineOverlayClips, {
+        durationSec: projectDuration,
+        includeRuler: true,
+      }),
+    [timelineOverlayClips, projectDuration],
   )
 
   const seekWithPlayheadSnap = useCallback(
     (time: number) => {
+      const thresholdSec = snapThresholdSecFromPx(
+        TIMELINE_SNAP_THRESHOLD_PX,
+        timelineContentWidthPxRef.current,
+        projectDuration,
+      )
       const { time: snapped, snapped: didSnap } = snapPlayheadTime(
         time,
         playheadSnapTargetTimes,
         projectDuration,
+        thresholdSec,
       )
       setPlayheadSeekSnapped(didSnap)
       seek(snapped)
@@ -610,17 +789,92 @@ export function EditorPage() {
 
   const handleClipSelect = useCallback(
     (clip: VideoClip) => {
+      setSelectedVideoClipId(clip.id)
+      setHighlightFollowsPlayhead(false)
       setIsPlaying(false)
       seek(clip.start)
     },
     [seek, setIsPlaying],
   )
 
+  const handleTimelineEditTool = useCallback(
+    (tool: TimelineToolId) => {
+      if (!selectedVideoClipId) return
+
+      switch (tool) {
+        case 'split': {
+          const result = splitClipAt(clips, currentTime, selectedVideoClipId)
+          if (!result) {
+            show(editorToasts.splitNeedPlayhead)
+            return
+          }
+          applyClipsUpdate(result.clips, result.duration)
+          setSelectedVideoClipId(result.secondId)
+          show(editorToasts.splitDone)
+          break
+        }
+        case 'delete': {
+          const result = deleteClipById(clips, selectedVideoClipId)
+          if (!result) {
+            show(editorToasts.deleteNeedOne)
+            return
+          }
+          applyClipsUpdate(result.clips, result.duration)
+          setSelectedVideoClipId(null)
+          show(editorToasts.deleteDone)
+          break
+        }
+        case 'mirror': {
+          const next = toggleClipMirror(clips, selectedVideoClipId)
+          applyClipsUpdate(next, projectDuration)
+          break
+        }
+        case 'rotate': {
+          const next = rotateClip(clips, selectedVideoClipId)
+          applyClipsUpdate(next, projectDuration)
+          break
+        }
+        case 'crop': {
+          const clip = clips.find((c) => c.id === selectedVideoClipId)
+          if (!clip) return
+          setIsPlaying(false)
+          seek(clip.start)
+          setDraftCrop(clip.transform?.crop ?? DEFAULT_CROP)
+          setCropClipId(selectedVideoClipId)
+          setIsCropMode(true)
+          break
+        }
+      }
+    },
+    [
+      selectedVideoClipId,
+      clips,
+      currentTime,
+      applyClipsUpdate,
+      projectDuration,
+      show,
+      seek,
+      setIsPlaying,
+    ],
+  )
+
+  const handleClipPlaybackRateChange = useCallback(
+    (rate: number) => {
+      if (!selectedVideoClipId) return
+      const next = setClipPlaybackRate(clips, selectedVideoClipId, rate)
+      applyClipsUpdate(next, projectDuration)
+    },
+    [selectedVideoClipId, clips, projectDuration, applyClipsUpdate],
+  )
+
   const handleSeekRatio = useCallback(
     (ratio: number) => {
-      seekWithPlayheadSnap(ratio * projectDuration)
+      setIsPlaying(false)
+      seekWithPlayheadSnap(
+        Math.max(0, Math.min(1, ratio)) * projectDuration,
+      )
     },
-    [seekWithPlayheadSnap, projectDuration],
+    [seekWithPlayheadSnap, projectDuration, setIsPlaying],
   )
 
   const closeAllPanels = useCallback(() => {
@@ -636,8 +890,7 @@ export function EditorPage() {
     setDraftOriginalAudioRange(snapshot.originalAudioRange)
     setDraftBgmRange(snapshot.bgmRange)
     setDraftNarrationText(
-      snapshot.narrationText ??
-        '???????????????????????????',
+      snapshot.narrationText ?? DEFAULT_NARRATION_DRAFT_TEXT,
     )
     setDraftNarrationVoice(snapshot.narrationVoice)
     setDraftNarrationEngineId(snapshot.narrationEngineId)
@@ -734,30 +987,29 @@ export function EditorPage() {
   }
 
   const confirmAudioPanel = () => {
-    pushHistory(
-      buildSnapshot(snapshot, {
-        keepOriginalAudio: draftKeepOriginalAudio,
-        bgmId: draftBgmId,
-        originalAudioRange: draftOriginalAudioRange,
-        bgmRange: draftBgmRange,
-      }),
-    )
+    const changed =
+      draftKeepOriginalAudio !== appliedKeepOriginalAudio ||
+      draftBgmId !== appliedBgmId ||
+      draftOriginalAudioRange.startTime !== appliedOriginalAudioRange.startTime ||
+      draftOriginalAudioRange.endTime !== appliedOriginalAudioRange.endTime ||
+      draftBgmRange.startTime !== appliedBgmRange.startTime ||
+      draftBgmRange.endTime !== appliedBgmRange.endTime
+
+    pushEditorHistory({
+      keepOriginalAudio: draftKeepOriginalAudio,
+      bgmId: draftBgmId,
+      originalAudioRange: draftOriginalAudioRange,
+      bgmRange: draftBgmRange,
+    })
     closeAllPanels()
-    const parts: string[] = []
-    parts.push(draftKeepOriginalAudio ? '?????' : '?????')
-    if (draftBgmId) {
-      const name = getNetworkAudio(draftBgmId)?.name ?? formatBgmLabel(draftBgmId)
-      parts.push(`???${name}?`)
-    } else {
-      parts.push('?????')
+    if (changed) {
+      show(editorToasts.audioSaved)
     }
-    show(parts.join(' ? '))
   }
 
   const openNarrationPanel = () => {
     setDraftNarrationText(
-      appliedNarrationText ??
-        '???????????????????????????',
+      appliedNarrationText ?? DEFAULT_NARRATION_DRAFT_TEXT,
     )
     setDraftNarrationVoice(appliedNarrationVoice)
     setDraftNarrationEngineId(appliedNarrationEngineId)
@@ -767,8 +1019,7 @@ export function EditorPage() {
 
   const cancelNarrationPanel = () => {
     setDraftNarrationText(
-      appliedNarrationText ??
-        '???????????????????????????',
+      appliedNarrationText ?? DEFAULT_NARRATION_DRAFT_TEXT,
     )
     setDraftNarrationVoice(appliedNarrationVoice)
     setDraftNarrationEngineId(appliedNarrationEngineId)
@@ -777,20 +1028,21 @@ export function EditorPage() {
   }
 
   const confirmNarrationPanel = () => {
-    pushHistory(
-      buildSnapshot(
-        snapshot,
-        {
-          narrationText: draftNarrationText.trim() || null,
-          narrationVoice: draftNarrationVoice,
-          narrationEngineId: draftNarrationEngineId,
-          narrationEnabled: draftNarrationEnabled,
-        },
-        projectDuration,
-      ),
+    pushEditorHistory(
+      {
+        narrationText: draftNarrationText.trim() || null,
+        narrationVoice: draftNarrationVoice,
+        narrationEngineId: draftNarrationEngineId,
+        narrationEnabled: draftNarrationEnabled,
+      },
+      projectDuration,
     )
     setActiveFeature(null)
-    show(draftNarrationEnabled ? '???????' : '???????')
+    show(
+      draftNarrationEnabled
+        ? editorToasts.narrationOn
+        : editorToasts.narrationOff,
+    )
   }
 
   const handleStickerPick = (stickerId: string) => {
@@ -822,14 +1074,12 @@ export function EditorPage() {
 
   const commitLiveText = useCallback(() => {
     if (!liveText || !selectedTextId) return
-    pushHistory(
-      buildSnapshot(snapshot, {
-        textOverlays: appliedTexts.map((t) =>
-          t.id === liveText.id ? cloneOverlay(liveText) : cloneOverlay(t),
-        ),
-      }),
-    )
-  }, [liveText, selectedTextId, pushHistory, snapshot, appliedTexts])
+    pushEditorHistory({
+      textOverlays: appliedTexts.map((t) =>
+        t.id === liveText.id ? cloneOverlay(liveText) : cloneOverlay(t),
+      ),
+    })
+  }, [liveText, selectedTextId, pushEditorHistory, appliedTexts])
 
   const handleStickerChange = (id: string, patch: Partial<StickerOverlay>) => {
     if (isStickerPanelEditing && draftSticker?.id === id) {
@@ -843,14 +1093,12 @@ export function EditorPage() {
 
   const commitLiveSticker = useCallback(() => {
     if (!liveSticker || !selectedStickerId) return
-    pushHistory(
-      buildSnapshot(snapshot, {
-        stickerOverlays: appliedStickers.map((s) =>
-          s.id === liveSticker.id ? cloneSticker(liveSticker) : cloneSticker(s),
-        ),
-      }),
-    )
-  }, [liveSticker, selectedStickerId, pushHistory, snapshot, appliedStickers])
+    pushEditorHistory({
+      stickerOverlays: appliedStickers.map((s) =>
+        s.id === liveSticker.id ? cloneSticker(liveSticker) : cloneSticker(s),
+      ),
+    })
+  }, [liveSticker, selectedStickerId, pushEditorHistory, appliedStickers])
 
   const resolveTextOverlay = useCallback(
     (id: string): TextOverlay | null => {
@@ -985,21 +1233,19 @@ export function EditorPage() {
   const pasteFromClipboard = useCallback(() => {
     const clip = clipboardRef.current
     if (!clip) {
-      show('????????????')
+      show(editorToasts.clipboardEmpty)
       return
     }
 
     if (clip.type === 'bgm') {
-      pushHistory(
-        buildSnapshot(snapshot, {
-          bgmId: clip.data.bgmId,
-          bgmRange: clip.data.bgmRange,
-        }),
-      )
+      pushEditorHistory({
+        bgmId: clip.data.bgmId,
+        bgmRange: clip.data.bgmRange,
+      })
       setDraftBgmId(clip.data.bgmId)
       setDraftBgmRange(clip.data.bgmRange)
       openAudioPanel()
-      show('?????')
+      show(editorToasts.pasted)
       return
     }
     closeAllPanels()
@@ -1008,24 +1254,20 @@ export function EditorPage() {
 
     if (clip.type === 'sticker') {
       const dup = duplicateStickerOverlay(cloneSticker(clip.data), projectDuration)
-      pushHistory(
-        buildSnapshot(snapshot, {
-          stickerOverlays: [...syncStickersFromLive(), dup],
-        }),
-      )
+      pushEditorHistory({
+        stickerOverlays: [...syncStickersFromLive(), dup],
+      })
       selectSticker(dup)
-      show('?????')
+      show(editorToasts.pasted)
       return
     }
 
     const dup = duplicateTextOverlay(cloneOverlay(clip.data), projectDuration)
-    pushHistory(
-      buildSnapshot(snapshot, {
-        textOverlays: [...syncTextsFromLive(), cloneOverlay(dup)],
-      }),
-    )
+    pushEditorHistory({
+      textOverlays: [...syncTextsFromLive(), cloneOverlay(dup)],
+    })
     selectText(dup)
-    show('?????')
+    show(editorToasts.pasted)
   }, [
     closeAllPanels,
     pushHistory,
@@ -1048,15 +1290,13 @@ export function EditorPage() {
         texts = [...texts, source]
       }
       const dup = duplicateTextOverlay(source, projectDuration)
-      pushHistory(
-        buildSnapshot(snapshot, {
-          textOverlays: [...texts, cloneOverlay(dup)],
-        }),
-      )
+      pushEditorHistory({
+        textOverlays: [...texts, cloneOverlay(dup)],
+      })
       setDraftText(null)
       closeAllPanels()
       selectText(dup)
-      show('?????')
+      show(editorToasts.copied)
     },
     [syncTextsFromLive, pushHistory, snapshot, closeAllPanels, selectText, show],
   )
@@ -1071,15 +1311,13 @@ export function EditorPage() {
         stickers = [...stickers, source]
       }
       const dup = duplicateStickerOverlay(source, projectDuration)
-      pushHistory(
-        buildSnapshot(snapshot, {
-          stickerOverlays: [...stickers, dup],
-        }),
-      )
+      pushEditorHistory({
+        stickerOverlays: [...stickers, dup],
+      })
       setDraftSticker(null)
       closeAllPanels()
       selectSticker(dup)
-      show('?????')
+      show(editorToasts.copied)
     },
     [
       syncStickersFromLive,
@@ -1099,7 +1337,7 @@ export function EditorPage() {
       type: 'bgm',
       data: { bgmId, bgmRange: { ...bgmRange } },
     }
-    show('???????????????')
+    show(editorToasts.cutDone)
   }, [showAudioPanel, draftBgmId, appliedBgmId, draftBgmRange, appliedBgmRange, show])
 
   const handleOverlayMenuAction = useCallback(
@@ -1127,22 +1365,22 @@ export function EditorPage() {
           clipboardRef.current = { type: 'text', data: cloneOverlay(text) }
           let texts = syncTextsFromLive()
           texts = texts.filter((t) => t.id !== text.id)
-          pushHistory(buildSnapshot(snapshot, { textOverlays: texts }))
+          pushEditorHistory({ textOverlays: texts })
           if (draftText?.id === text.id) setDraftText(null)
           clearTextSelection()
           closeAllPanels()
-          show('?????????')
+          show(editorToasts.cutDone)
           return
         }
 
         if (action === 'delete') {
           let texts = syncTextsFromLive()
           texts = texts.filter((t) => t.id !== text.id)
-          pushHistory(buildSnapshot(snapshot, { textOverlays: texts }))
+          pushEditorHistory({ textOverlays: texts })
           if (draftText?.id === text.id) setDraftText(null)
           clearTextSelection()
           closeAllPanels()
-          show('?????')
+          show(editorToasts.deleted)
         }
         return
       }
@@ -1167,18 +1405,18 @@ export function EditorPage() {
             type: 'bgm',
             data: { bgmId, bgmRange: { ...bgmRange } },
           }
-          pushHistory(buildSnapshot(snapshot, { bgmId: null }))
+          pushEditorHistory({ bgmId: null })
           setDraftBgmId(null)
           closeAllPanels()
-          show('?????????')
+          show(editorToasts.cutDone)
           return
         }
 
         if (action === 'delete') {
-          pushHistory(buildSnapshot(snapshot, { bgmId: null }))
+          pushEditorHistory({ bgmId: null })
           setDraftBgmId(null)
           closeAllPanels()
-          show('?????')
+          show(editorToasts.deleted)
         }
         return
       }
@@ -1201,22 +1439,22 @@ export function EditorPage() {
           clipboardRef.current = { type: 'sticker', data: cloneSticker(sticker) }
           let stickers = syncStickersFromLive()
           stickers = stickers.filter((s) => s.id !== sticker.id)
-          pushHistory(buildSnapshot(snapshot, { stickerOverlays: stickers }))
+          pushEditorHistory({ stickerOverlays: stickers })
           if (draftSticker?.id === sticker.id) setDraftSticker(null)
           clearStickerSelection()
           closeAllPanels()
-          show('?????????')
+          show(editorToasts.cutDone)
           return
         }
 
         if (action === 'delete') {
           let stickers = syncStickersFromLive()
           stickers = stickers.filter((s) => s.id !== sticker.id)
-          pushHistory(buildSnapshot(snapshot, { stickerOverlays: stickers }))
+          pushEditorHistory({ stickerOverlays: stickers })
           if (draftSticker?.id === sticker.id) setDraftSticker(null)
           clearStickerSelection()
           closeAllPanels()
-          show('?????')
+          show(editorToasts.deleted)
         }
       }
     },
@@ -1454,18 +1692,34 @@ export function EditorPage() {
       }
       if (!range) return null
 
-      if (isPlayheadSnapClipKind(session.clip.kind)) {
-        const snapped = snapRangeToPlayhead(
-          range,
-          currentTime,
-          projectDuration,
-          session.mode,
-        )
-        return { range: snapped.range, snapEdge: snapped.snapped }
+      const thresholdSec = snapThresholdSecFromPx(
+        TIMELINE_SNAP_THRESHOLD_PX,
+        trackWidthPx,
+        projectDuration,
+      )
+      const targets = buildClipDragSnapTargets(
+        timelineOverlayClips,
+        currentTime,
+        projectDuration,
+        session.clip.id,
+      )
+      const snapped = snapRangeToTargetTimes(
+        range,
+        targets,
+        projectDuration,
+        session.mode,
+        thresholdSec,
+      )
+      const playheadAligned =
+        snapped.snapped != null &&
+        (Math.abs(snapped.range.startTime - Math.round(currentTime)) < 0.01 ||
+          Math.abs(snapped.range.endTime - Math.round(currentTime)) < 0.01)
+      return {
+        range: snapped.range,
+        snapEdge: playheadAligned ? snapped.snapped : null,
       }
-      return { range, snapEdge: null }
     },
-    [currentTime],
+    [currentTime, projectDuration, timelineOverlayClips],
   )
 
   const commitClipDrag = useCallback(
@@ -1482,7 +1736,7 @@ export function EditorPage() {
               ? overlayWithNormalizedRange({ ...t, ...normalized }, projectDuration)
               : t,
           )
-          pushHistory(buildSnapshot(snapshot, { textOverlays: nextTexts }))
+          pushEditorHistory({ textOverlays: nextTexts })
           if (selectedTextId === clip.id) {
             const updated = nextTexts.find((t) => t.id === clip.id)
             if (updated) setLiveText(cloneOverlay(updated))
@@ -1498,17 +1752,17 @@ export function EditorPage() {
               ? overlayWithNormalizedRange({ ...s, ...normalized }, projectDuration)
               : s,
           )
-          pushHistory(buildSnapshot(snapshot, { stickerOverlays: nextStickers }))
+          pushEditorHistory({ stickerOverlays: nextStickers })
           if (selectedStickerId === clip.id) {
             const updated = nextStickers.find((s) => s.id === clip.id)
             if (updated) setLiveSticker(cloneSticker(updated))
           }
         }
       } else if (clip.kind === 'originalAudio') {
-        pushHistory(buildSnapshot(snapshot, { originalAudioRange: normalized }))
+        pushEditorHistory({ originalAudioRange: normalized })
         setDraftOriginalAudioRange(normalized)
       } else if (clip.kind === 'bgm') {
-        pushHistory(buildSnapshot(snapshot, { bgmRange: normalized }))
+        pushEditorHistory({ bgmRange: normalized })
         setDraftBgmRange(normalized)
       }
     },
@@ -1672,11 +1926,9 @@ export function EditorPage() {
     if (id === 'music') {
       if (activeTool === 'audio') {
         cancelAudioPanel()
-        show('???????')
       } else {
         setActiveFeature('music')
         openAudioPanel()
-        show('???????')
       }
       return
     }
@@ -1685,10 +1937,10 @@ export function EditorPage() {
       return
     }
     setActiveFeature(id)
-    show(`${label} ?????? AI ??`)
+    show(editorToasts.featureDev(label))
   }
 
-  const handleToolSelect = (id: string, label: string) => {
+  const handleToolSelect = (id: string, _label: string) => {
     if (id === 'filter') {
       if (activeTool === 'filter') cancelFilterPanel()
       else openFilterPanel()
@@ -1718,7 +1970,6 @@ export function EditorPage() {
     clearTextSelection()
     clearStickerSelection()
     setActiveTool(id)
-    show(`?????${label}???`)
   }
 
   const handleFilterSelect = (id: string) => {
@@ -1727,29 +1978,27 @@ export function EditorPage() {
   }
 
   const confirmEffectPanel = () => {
-    pushHistory(buildSnapshot(snapshot, { effectId: draftEffectId }))
+    pushEditorHistory({ effectId: draftEffectId })
     closeAllPanels()
     const name = EFFECT_PRESETS.find((e) => e.id === draftEffectId)?.name ?? ''
     if (draftEffectId === 'none') {
-      show('?????')
+      show(editorToasts.effectOff)
     } else {
-      show(`????${name}???`)
+      show(editorToasts.effectOn(name))
     }
   }
 
   const confirmFilterPanel = () => {
-    pushHistory(
-      buildSnapshot(snapshot, {
-        filterId: draftFilterId,
-        filterIntensity: draftIntensity,
-      }),
-    )
+    pushEditorHistory({
+      filterId: draftFilterId,
+      filterIntensity: draftIntensity,
+    })
     closeAllPanels()
     const name = FILTER_PRESETS.find((f) => f.id === draftFilterId)?.name ?? ''
     if (draftFilterId === 'none') {
-      show('??????')
+      show(editorToasts.filterOff)
     } else {
-      show(`????${name}??? ? ?? ${draftIntensity}%`)
+      show(editorToasts.filterOn(name, draftIntensity))
     }
   }
 
@@ -1783,14 +2032,14 @@ export function EditorPage() {
       }
     }
 
-    pushHistory(buildSnapshot(snapshot, { stickerOverlays: nextStickers }))
+    pushEditorHistory({ stickerOverlays: nextStickers })
     setDraftSticker(null)
     setSelectedStickerId(null)
     setLiveSticker(null)
     closeAllPanels()
     if (draftSticker) {
       const name = getStickerPreset(draftSticker.stickerId)?.name ?? '??'
-      show(`????${name}???`)
+      show(editorToasts.stickerOn(name))
     }
   }
 
@@ -1812,12 +2061,12 @@ export function EditorPage() {
       nextTexts = [...nextTexts, saved]
     }
 
-    pushHistory(buildSnapshot(snapshot, { textOverlays: nextTexts }))
+    pushEditorHistory({ textOverlays: nextTexts })
     setDraftText(null)
     setSelectedTextId(null)
     setLiveText(null)
     closeAllPanels()
-    show('?????')
+    show(editorToasts.textSaved)
   }
 
 
@@ -1913,21 +2162,21 @@ export function EditorPage() {
 
   const handleExport = useCallback(async () => {
     if (!hasEditorProject()) {
-      show('????????')
+      show(editorToasts.exportNeedProject)
       navigate('/create')
       return
     }
 
     const hasLocalVideo = clips.some((clip) => clip.videoSrc)
     if (!hasLocalVideo) {
-      show('?????????????')
+      show(editorToasts.exportNeedLocal)
       return
     }
 
     setIsPlaying(false)
     setExporting(true)
     setExportProgress(0)
-    setExportMessage('?????')
+    setExportMessage(EXPORT_MESSAGE_PREPARING)
     exportCancelledRef.current = false
 
     const exportSnapshot = buildExportSnapshot()
@@ -1947,16 +2196,16 @@ export function EditorPage() {
       )
 
       setExportedVideo(result)
-      show('?????')
+      show(editorToasts.exportDone)
       navigate('/complete')
     } catch (error) {
       const msg = error instanceof Error ? error.message : ''
       if (msg !== 'cancelled') {
         const hint =
-          msg.includes('??') || msg.includes('Memory')
-            ? '???????????? 1?2 ????'
+          msg.includes('\u5185\u5b58') || msg.includes('Memory')
+            ? editorToasts.exportMemHint
             : ''
-        show((msg || '????????') + hint)
+        show((msg || editorToasts.exportFailed) + hint)
       }
     } finally {
       setExporting(false)
@@ -1974,7 +2223,7 @@ export function EditorPage() {
 
   const handleCancelExport = () => {
     exportCancelledRef.current = true
-    setExportMessage('?????')
+    setExportMessage(EXPORT_MESSAGE_CANCELLING)
   }
 
   const handleToggleEditTitle = () => {
@@ -1982,8 +2231,8 @@ export function EditorPage() {
       const trimmed = titleDraft.trim() || title
       setTitleDraft(trimmed)
       if (trimmed !== title) {
-        pushHistory(buildSnapshot(snapshot, { title: trimmed }))
-        show('?????')
+        pushEditorHistory({ title: trimmed })
+        show(editorToasts.titleUpdated)
       }
       setIsEditingTitle(false)
     } else {
@@ -2001,7 +2250,7 @@ export function EditorPage() {
     clearTextSelection()
     clearStickerSelection()
     undo()
-    show('???')
+    show(editorToasts.undo)
   }, [canUndo, closeAllPanels, clearTextSelection, clearStickerSelection, closeContextMenu, undo, show])
 
   const handleRedo = useCallback(() => {
@@ -2013,7 +2262,7 @@ export function EditorPage() {
     clearTextSelection()
     clearStickerSelection()
     redo()
-    show('???')
+    show(editorToasts.redo)
   }, [canRedo, closeAllPanels, clearTextSelection, clearStickerSelection, closeContextMenu, redo, show])
 
   useEffect(() => {
@@ -2071,6 +2320,7 @@ export function EditorPage() {
         videoSrc={activeClip.videoSrc}
         clipTransform={previewClipTransform}
         clipTime={clipTime}
+        playbackRate={activePlaybackRate}
         isCropMode={isCropMode}
         cropDraft={draftCrop}
         onCropChange={setDraftCrop}
@@ -2102,6 +2352,13 @@ export function EditorPage() {
         onStickerContextMenu={handleStickerContextMenu}
         onTogglePlay={togglePlay}
         onSeek={handleSeekRatio}
+        onSourceAspectChange={setPreviewSourceAspect}
+        previewMuted={
+          !previewKeepOriginalAudio ||
+          !activeClip.videoSrc ||
+          !isActiveAtTime(currentTime, effectiveOriginalAudioRange)
+        }
+        previewVolume={previewVideoVolume}
       />
 
       {contextMenu && (
@@ -2134,8 +2391,13 @@ export function EditorPage() {
         highlightAt={highlightAt}
         currentTime={currentTime}
         duration={projectDuration}
+        isPlaying={isPlaying}
+        highlightFollowsPlayhead={highlightFollowsPlayhead}
         onImportClick={handleImportClick}
         importLoading={importingVideos}
+        onOverlayTracksWidthChange={(width) => {
+          if (width > 0) timelineContentWidthPxRef.current = width
+        }}
         overlayClips={timelineOverlayClips}
         draggingClipId={draggingClipId}
         playheadSnapActive={playheadSnapEdge !== null || playheadSeekSnapped}
@@ -2143,6 +2405,13 @@ export function EditorPage() {
         onSeek={seekWithPlayheadSnap}
         onPlayheadSeekEnd={clearPlayheadSeekSnap}
         onClipSelect={handleClipSelect}
+        selectedVideoClipId={selectedVideoClipId}
+        onEditTool={handleTimelineEditTool}
+        canSplitClip={canSplitSelectedClip}
+        canDeleteClip={canDeleteSelectedClip}
+        clipPlaybackRate={selectedClipPlaybackRate}
+        onClipPlaybackRateChange={handleClipPlaybackRateChange}
+        activeEditTool={isCropMode ? 'crop' : null}
         onOverlayClipClick={handleTimelineClipClick}
         onOverlayClipDoubleClick={handleTimelineClipDoubleClick}
         onOverlayClipOpenMenu={handleTimelineClipOpenMenu}

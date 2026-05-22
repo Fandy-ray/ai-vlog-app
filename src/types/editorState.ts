@@ -1,3 +1,4 @@
+import type { VideoClip } from '@/data/mockProject'
 import type { TimeRange } from '@/utils/timeRange'
 import { createDefaultTimeRange } from '@/utils/timeRange'
 import { PROJECT_DURATION } from '@/data/mockProject'
@@ -40,6 +41,8 @@ export interface EditorSnapshot {
   effectId: string
   textOverlays: TextOverlay[]
   stickerOverlays: StickerOverlay[]
+  /** 叠加轨显示顺序（clip id，不含原声轨；按添加先后） */
+  overlayTrackOrder?: string[]
   keepOriginalAudio: boolean
   originalAudioRange: TimeRange
   bgmId: string | null
@@ -52,6 +55,9 @@ export interface EditorSnapshot {
   narrationEngineId: string
   /** 是否将旁白混入导出 */
   narrationEnabled: boolean
+  /** 视频轨片段（与时间轴剪辑工具栏撤销联动） */
+  videoClips?: VideoClip[]
+  videoDuration?: number
 }
 
 const defaultRange = createDefaultTimeRange(PROJECT_DURATION)
@@ -63,9 +69,10 @@ export const INITIAL_EDITOR_SNAPSHOT: EditorSnapshot = {
   effectId: 'none',
   textOverlays: [],
   stickerOverlays: [],
+  overlayTrackOrder: [],
   keepOriginalAudio: true,
   originalAudioRange: { ...defaultRange },
-  bgmId: 'mixkit-travel-serene-view',
+  bgmId: null,
   bgmRange: { ...defaultRange },
   narrationText: null,
   narrationVoice: 'yige',

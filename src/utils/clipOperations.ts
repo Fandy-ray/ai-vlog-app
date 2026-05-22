@@ -27,19 +27,18 @@ function revokeClipBlobIfUnused(clips: VideoClip[], removed: VideoClip) {
   URL.revokeObjectURL(src)
 }
 
-/** 在播放头位置分割当前片段 */
-export function splitClipAt(
+function splitClipAtIndex(
   clips: VideoClip[],
+  index: number,
   time: number,
 ): { clips: VideoClip[]; duration: number } | null {
-  const index = clips.findIndex(
-    (clip) =>
-      time > clip.start + MIN_PART_SEC &&
-      time < clip.start + clip.duration - MIN_PART_SEC,
-  )
-  if (index === -1) return null
-
   const clip = clips[index]
+  if (
+    time <= clip.start + MIN_PART_SEC ||
+    time >= clip.start + clip.duration - MIN_PART_SEC
+  ) {
+    return null
+  }
   const offset = time - clip.start
   const stamp = Date.now()
 
@@ -65,6 +64,28 @@ export function splitClipAt(
   return { clips: merged, duration: totalDuration(merged) }
 }
 
+/** 在播放头位置分割指定片段 */
+export function splitClipAt(
+  clips: VideoClip[],
+  time: number,
+  clipId?: string,
+): { clips: VideoClip[]; duration: number; secondId: string } | null {
+  const index =
+    clipId != null
+      ? clips.findIndex((c) => c.id === clipId)
+      : clips.findIndex(
+          (clip) =>
+            time > clip.start + MIN_PART_SEC &&
+            time < clip.start + clip.duration - MIN_PART_SEC,
+        )
+  if (index === -1) return null
+
+  const result = splitClipAtIndex(clips, index, time)
+  if (!result) return null
+  const second = result.clips[index + 1]
+  return { ...result, secondId: second.id }
+}
+
 /** 删除播放头所在片段 */
 export function deleteClipAt(
   clips: VideoClip[],
@@ -82,6 +103,36 @@ export function deleteClipAt(
   revokeClipBlobIfUnused(remaining, removed)
 
   return { clips: remaining, duration: totalDuration(remaining) }
+}
+
+/** 按 id 删除片段（至少保留一段） */
+export function deleteClipById(
+  clips: VideoClip[],
+  clipId: string,
+): { clips: VideoClip[]; duration: number } | null {
+  if (clips.length <= 1) return null
+  const index = clips.findIndex((c) => c.id === clipId)
+  if (index === -1) return null
+
+  const removed = clips[index]
+  const remaining = reindexClipStarts(clips.filter((_, i) => i !== index))
+  revokeClipBlobIfUnused(remaining, removed)
+
+  return { clips: remaining, duration: totalDuration(remaining) }
+}
+
+export const CLIP_SPEED_OPTIONS = [
+  0.25, 0.5, 0.75, 1, 1.25, 1.5, 2,
+] as const
+
+export function setClipPlaybackRate(
+  clips: VideoClip[],
+  clipId: string,
+  rate: number,
+): VideoClip[] {
+  return clips.map((clip) =>
+    clip.id === clipId ? { ...clip, playbackRate: rate } : clip,
+  )
 }
 
 export function toggleClipMirror(clips: VideoClip[], clipId: string): VideoClip[] {

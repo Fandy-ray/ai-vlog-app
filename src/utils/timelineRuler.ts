@@ -169,3 +169,47 @@ export function timeFromPointer(
   const percent = Math.max(0, Math.min(100, ratio * 100))
   return timelinePercentToTime(percent, durationSec)
 }
+
+/** 指针在「纯时间内容区」（无左右 inset、无右侧添加列）内换算为秒 */
+export function timeFromContentPointer(
+  clientX: number,
+  element: HTMLElement,
+  durationSec: number,
+): number {
+  const rect = element.getBoundingClientRect()
+  const ratio =
+    rect.width > 0
+      ? Math.max(0, Math.min(1, (clientX - rect.left) / rect.width))
+      : 0
+  return ratio * Math.max(0, durationSec)
+}
+
+/** 右侧「添加素材」列宽度（Tailwind class） */
+export const TIMELINE_ADD_COLUMN_CLASS = 'w-11'
+
+/** 时间刻度尺行（与右侧添加列占位同高同线） */
+export const TIMELINE_RULER_ROW_CLASS =
+  'relative flex h-7 shrink-0 items-end overflow-visible border-b border-border/60 pb-1'
+
+/** 视频素材轨单行高度（与右侧添加按钮一致） */
+export const TIMELINE_VIDEO_CLIP_ROW_CLASS = 'relative h-14 w-full overflow-hidden rounded-lg'
+
+/** 视频素材轨区块（含上下间距） */
+export const TIMELINE_VIDEO_TRACK_SECTION_CLASS =
+  'relative shrink-0 overflow-visible py-1.5'
+
+/** 时间轴模块外层（独立工具栏 + 白面板，纵向占满剩余空间） */
+export const TIMELINE_MODULE_CLASS =
+  'flex min-h-0 flex-1 flex-col gap-2 px-3 pb-2 pt-1'
+
+/** 独立全宽剪辑工具栏模块（与上方 AI 功能条同宽） */
+export const TIMELINE_TOOLBAR_MODULE_CLASS =
+  'w-full shrink-0 rounded-xl bg-primary/[0.09] px-3 py-2.5 ring-1 ring-primary/10'
+
+/** 下方白色圆角编辑面板 */
+export const TIMELINE_PANEL_CLASS =
+  'relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl bg-surface shadow-[0_2px_14px_rgba(44,62,80,0.07)] ring-1 ring-border/35'
+
+/** 添加素材：浅蓝底 + 深蓝实线圆角框（与 playhead 同色系） */
+export const TIMELINE_ADD_CLIP_BUTTON_CLASS =
+  'box-border flex h-full w-full flex-col items-center justify-center rounded-lg border-2 border-dashed border-[var(--color-primary-dark)] bg-primary/10 text-primary transition-[color,background-color,border-color,transform] duration-200 hover:border-[#3a4fa3] hover:bg-primary/[0.16] active:scale-[0.98] disabled:cursor-wait disabled:opacity-60'

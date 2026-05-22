@@ -9,7 +9,7 @@ export function usePlayback(duration: number, initialTime = 31) {
 
   const seek = useCallback(
     (time: number) => {
-      setCurrentTime(clamp(Math.round(time), 0, duration))
+      setCurrentTime(clamp(time, 0, duration))
     },
     [duration],
   )

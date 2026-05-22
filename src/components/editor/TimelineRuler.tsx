@@ -2,7 +2,10 @@ import { useMemo } from 'react'
 import { formatTime } from '@/utils/formatTime'
 import {
   getRulerTicksForDisplay,
+  TIMELINE_RULER_ROW_CLASS,
+  timeFromContentPointer,
   timeFromPointer,
+  timeToContentPercent,
   timeToTimelinePercent,
   type RulerLabelAlign,
 } from '@/utils/timelineRuler'
@@ -12,6 +15,8 @@ interface TimelineRulerProps {
   onSeek: (time: number) => void
   onPlayheadSeekEnd?: () => void
   onBackgroundPointerDown?: () => void
+  /** 仅映射时间内容区（与素材轨同宽，不含右侧添加列） */
+  contentArea?: boolean
 }
 
 const ALIGN_CLASS: Record<RulerLabelAlign, string> = {
@@ -25,13 +30,16 @@ export function TimelineRuler({
   onSeek,
   onPlayheadSeekEnd,
   onBackgroundPointerDown,
+  contentArea = false,
 }: TimelineRulerProps) {
   const tickDisplays = useMemo(() => getRulerTicksForDisplay(duration), [duration])
   const endSec = Math.floor(duration)
+  const timeToPercent = contentArea ? timeToContentPercent : timeToTimelinePercent
+  const timeFromClientX = contentArea ? timeFromContentPointer : timeFromPointer
 
   const seekFromEvent = (clientX: number, header: HTMLElement) => {
     const time = Math.round(
-      Math.max(0, Math.min(duration, timeFromPointer(clientX, header, duration))),
+      Math.max(0, Math.min(duration, timeFromClientX(clientX, header, duration))),
     )
     onSeek(time)
   }
@@ -55,20 +63,20 @@ export function TimelineRuler({
 
   return (
     <header
-      className="relative flex h-7 shrink-0 cursor-pointer items-end overflow-visible border-b border-border/60 pb-1"
+      className={`${TIMELINE_RULER_ROW_CLASS} relative z-0 cursor-pointer`}
       onPointerDown={handlePointerDown}
       aria-label="时间刻度"
     >
       {tickDisplays.map(({ sec, align, showLabel }) => (
         <div
           key={sec}
-          className="pointer-events-none absolute bottom-0"
-          style={{ left: `${timeToTimelinePercent(sec, duration)}%` }}
+          className={`pointer-events-none absolute bottom-0 top-3 ${ALIGN_CLASS[align]}`}
+          style={{ left: `${timeToPercent(sec, duration)}%` }}
         >
-          <div className={`flex flex-col ${ALIGN_CLASS[align]}`}>
+          <div className="flex h-full flex-col">
             {showLabel && (
               <span
-                className={`whitespace-nowrap text-[10px] tabular-nums leading-none ${
+                className={`shrink-0 whitespace-nowrap text-[10px] tabular-nums leading-none ${
                   sec === endSec ? 'font-medium text-text-secondary' : 'text-text-muted'
                 }`}
               >
@@ -76,7 +84,9 @@ export function TimelineRuler({
               </span>
             )}
             <span
-              className={`mt-0.5 h-2 w-px shrink-0 bg-border/80 ${
+              className={`mt-auto w-px shrink-0 bg-border/80 ${
+                contentArea ? 'h-2.5' : 'h-2'
+              } ${
                 align === 'start'
                   ? 'self-start'
                   : align === 'end'

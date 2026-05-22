@@ -1,4 +1,5 @@
 import { clamp } from '@/utils/formatTime'
+import { getRulerTicks } from '@/utils/timelineRuler'
 import {
   MIN_RANGE_DURATION_SEC,
   normalizeTimeRange,
@@ -9,24 +10,83 @@ import type {
   TimelineOverlayKind,
 } from '@/types/timelineDisplay'
 
-/** 条块边缘与播放指针距离小于该值（秒）时触发吸附 */
+/** 指针拖动吸附默认阈值（秒），无轨道宽度时的回退 */
 export const PLAYHEAD_SNAP_THRESHOLD_SEC = 0.4
+
+/** 时间轴内容区上约 6～10px 对应的吸附距离（取 8px） */
+export const TIMELINE_SNAP_THRESHOLD_PX = 8
 
 export type PlayheadSnapEdge = 'start' | 'end'
 
+/** 支持边缘吸附的轨道条块类型 */
 export const PLAYHEAD_SNAP_CLIP_KINDS: TimelineOverlayKind[] = [
+  'originalAudio',
   'text',
   'sticker',
   'bgm',
 ]
 
+/** 根据轨道内容区像素宽度换算吸附阈值（秒） */
+export function snapThresholdSecFromPx(
+  thresholdPx: number,
+  contentWidthPx: number,
+  durationSec: number,
+): number {
+  if (contentWidthPx <= 0 || durationSec <= 0) return PLAYHEAD_SNAP_THRESHOLD_SEC
+  return (thresholdPx / contentWidthPx) * durationSec
+}
+
 export function isPlayheadSnapClipKind(kind: TimelineOverlayKind): boolean {
   return (PLAYHEAD_SNAP_CLIP_KINDS as TimelineOverlayKind[]).includes(kind)
 }
 
+function snapMoveRangeToTargetTimes(
+  range: TimeRange,
+  targetTimes: number[],
+  videoDuration: number,
+  thresholdSec: number,
+): { range: TimeRange; snapped: PlayheadSnapEdge | null } {
+  const max = Math.max(0, Math.floor(videoDuration))
+  const base = normalizeTimeRange(range, videoDuration).range
+  const span = base.endTime - base.startTime
+  if (span < MIN_RANGE_DURATION_SEC) {
+    return { range: base, snapped: null }
+  }
+
+  let best: { edge: PlayheadSnapEdge; dist: number; snappedRange: TimeRange } | null =
+    null
+
+  for (const raw of targetTimes) {
+    const target = clamp(Math.round(raw), 0, max)
+
+    const tryCandidate = (edge: PlayheadSnapEdge, dist: number, start: number, end: number) => {
+      if (dist > thresholdSec) return
+      if (start < 0 || end > max || end - start < MIN_RANGE_DURATION_SEC) return
+      const normalized = normalizeTimeRange(
+        { startTime: start, endTime: end },
+        videoDuration,
+      ).range
+      const aligned =
+        edge === 'start'
+          ? normalized.startTime === target
+          : normalized.endTime === target
+      if (!aligned) return
+      if (!best || dist < best.dist) {
+        best = { edge, dist, snappedRange: normalized }
+      }
+    }
+
+    tryCandidate('start', Math.abs(base.startTime - target), target, target + span)
+    tryCandidate('end', Math.abs(base.endTime - target), target - span, target)
+  }
+
+  if (best === null) return { range: base, snapped: null }
+  const { snappedRange, edge } = best
+  return { range: snappedRange, snapped: edge }
+}
+
 /**
- * 整体平移后的时间范围吸附到播放指针（保持时长不变）。
- * 优先吸附距离更近的边缘；若吸附后越界则放弃吸附。
+ * 整体平移后的时间范围吸附到目标时间点（保持时长不变）。
  */
 export function snapMoveRangeToPlayhead(
   range: TimeRange,
@@ -34,63 +94,62 @@ export function snapMoveRangeToPlayhead(
   videoDuration: number,
   thresholdSec: number = PLAYHEAD_SNAP_THRESHOLD_SEC,
 ): { range: TimeRange; snapped: PlayheadSnapEdge | null } {
-  const max = Math.max(0, Math.floor(videoDuration))
-  const playhead = clamp(Math.round(playheadSec), 0, max)
-  const base = normalizeTimeRange(range, videoDuration).range
-  const span = base.endTime - base.startTime
-  if (span < MIN_RANGE_DURATION_SEC) {
-    return { range: base, snapped: null }
-  }
-
-  const distStart = Math.abs(base.startTime - playhead)
-  const distEnd = Math.abs(base.endTime - playhead)
-
-  const candidates: { edge: PlayheadSnapEdge; dist: number }[] = []
-  if (distStart <= thresholdSec) {
-    candidates.push({ edge: 'start', dist: distStart })
-  }
-  if (distEnd <= thresholdSec) {
-    candidates.push({ edge: 'end', dist: distEnd })
-  }
-  if (candidates.length === 0) {
-    return { range: base, snapped: null }
-  }
-
-  candidates.sort((a, b) => a.dist - b.dist)
-  const edge = candidates[0].edge
-
-  let start: number
-  let end: number
-  if (edge === 'start') {
-    start = playhead
-    end = start + span
-  } else {
-    end = playhead
-    start = end - span
-  }
-
-  if (start < 0 || end > max || end - start < MIN_RANGE_DURATION_SEC) {
-    return { range: base, snapped: null }
-  }
-
-  const normalized = normalizeTimeRange(
-    { startTime: start, endTime: end },
+  return snapMoveRangeToTargetTimes(
+    range,
+    [playheadSec],
     videoDuration,
-  ).range
-
-  if (edge === 'start' && normalized.startTime !== playhead) {
-    return { range: base, snapped: null }
-  }
-  if (edge === 'end' && normalized.endTime !== playhead) {
-    return { range: base, snapped: null }
-  }
-
-  return { range: normalized, snapped: edge }
+    thresholdSec,
+  )
 }
 
-/**
- * 拖动左/右缘调整时，仅将被拖动的一侧吸附到播放指针，另一侧保持拖动结果。
- */
+function snapResizeRangeToTargetTimes(
+  range: TimeRange,
+  edge: PlayheadSnapEdge,
+  targetTimes: number[],
+  videoDuration: number,
+  thresholdSec: number,
+): { range: TimeRange; snapped: PlayheadSnapEdge | null } {
+  const max = Math.max(0, Math.floor(videoDuration))
+  const base = normalizeTimeRange(range, videoDuration).range
+
+  let best: { dist: number; snappedRange: TimeRange } | null = null
+
+  for (const raw of targetTimes) {
+    const target = clamp(Math.round(raw), 0, max)
+    const dist =
+      edge === 'start'
+        ? Math.abs(base.startTime - target)
+        : Math.abs(base.endTime - target)
+    if (dist > thresholdSec) continue
+
+    const candidate =
+      edge === 'start'
+        ? normalizeTimeRange(
+            { startTime: target, endTime: base.endTime },
+            videoDuration,
+          ).range
+        : normalizeTimeRange(
+            { startTime: base.startTime, endTime: target },
+            videoDuration,
+          ).range
+
+    const aligned =
+      edge === 'start'
+        ? candidate.startTime === target
+        : candidate.endTime === target
+    if (!aligned) continue
+    if (candidate.endTime - candidate.startTime < MIN_RANGE_DURATION_SEC) continue
+
+    if (!best || dist < best.dist) {
+      best = { dist, snappedRange: candidate }
+    }
+  }
+
+  if (best === null) return { range: base, snapped: null }
+  return { range: best.snappedRange, snapped: edge }
+}
+
+/** 拖动左/右缘调整时，将被拖动的一侧吸附到播放指针。 */
 export function snapResizeRangeToPlayhead(
   range: TimeRange,
   edge: PlayheadSnapEdge,
@@ -98,35 +157,13 @@ export function snapResizeRangeToPlayhead(
   videoDuration: number,
   thresholdSec: number = PLAYHEAD_SNAP_THRESHOLD_SEC,
 ): { range: TimeRange; snapped: PlayheadSnapEdge | null } {
-  const max = Math.max(0, Math.floor(videoDuration))
-  const playhead = clamp(Math.round(playheadSec), 0, max)
-  const base = normalizeTimeRange(range, videoDuration).range
-
-  if (edge === 'start') {
-    if (Math.abs(base.startTime - playhead) > thresholdSec) {
-      return { range: base, snapped: null }
-    }
-    const normalized = normalizeTimeRange(
-      { startTime: playhead, endTime: base.endTime },
-      videoDuration,
-    ).range
-    if (normalized.startTime !== playhead) {
-      return { range: base, snapped: null }
-    }
-    return { range: normalized, snapped: 'start' }
-  }
-
-  if (Math.abs(base.endTime - playhead) > thresholdSec) {
-    return { range: base, snapped: null }
-  }
-  const normalized = normalizeTimeRange(
-    { startTime: base.startTime, endTime: playhead },
+  return snapResizeRangeToTargetTimes(
+    range,
+    edge,
+    [playheadSec],
     videoDuration,
-  ).range
-  if (normalized.endTime !== playhead) {
-    return { range: base, snapped: null }
-  }
-  return { range: normalized, snapped: 'end' }
+    thresholdSec,
+  )
 }
 
 export type PlayheadSnapDragMode = 'move' | 'resize-start' | 'resize-end'
@@ -139,37 +176,85 @@ export function snapRangeToPlayhead(
   mode: PlayheadSnapDragMode,
   thresholdSec: number = PLAYHEAD_SNAP_THRESHOLD_SEC,
 ): { range: TimeRange; snapped: PlayheadSnapEdge | null } {
+  return snapRangeToTargetTimes(
+    range,
+    [playheadSec],
+    videoDuration,
+    mode,
+    thresholdSec,
+  )
+}
+
+/** 按拖动方式将条块吸附到多个目标时间点（其他条块边缘、刻度、播放指针等） */
+export function snapRangeToTargetTimes(
+  range: TimeRange,
+  targetTimes: number[],
+  videoDuration: number,
+  mode: PlayheadSnapDragMode,
+  thresholdSec: number = PLAYHEAD_SNAP_THRESHOLD_SEC,
+): { range: TimeRange; snapped: PlayheadSnapEdge | null } {
   if (mode === 'move') {
-    return snapMoveRangeToPlayhead(range, playheadSec, videoDuration, thresholdSec)
+    return snapMoveRangeToTargetTimes(range, targetTimes, videoDuration, thresholdSec)
   }
   if (mode === 'resize-start') {
-    return snapResizeRangeToPlayhead(
+    return snapResizeRangeToTargetTimes(
       range,
       'start',
-      playheadSec,
+      targetTimes,
       videoDuration,
       thresholdSec,
     )
   }
-  return snapResizeRangeToPlayhead(
+  return snapResizeRangeToTargetTimes(
     range,
     'end',
-    playheadSec,
+    targetTimes,
     videoDuration,
     thresholdSec,
   )
 }
 
-/** 从可吸附条块收集 start/end 时间点（秒） */
+export type CollectSnapTargetOptions = {
+  excludeClipId?: string
+  durationSec?: number
+  includeRuler?: boolean
+}
+
+/** 从可吸附条块（及可选刻度）收集 start/end 时间点（秒） */
 export function collectSnapTargetTimes(
-  clips: Pick<TimelineDisplayClip, 'kind' | 'startTime' | 'endTime'>[],
+  clips: Pick<TimelineDisplayClip, 'id' | 'kind' | 'startTime' | 'endTime'>[],
+  options?: CollectSnapTargetOptions,
 ): number[] {
   const times = new Set<number>()
   for (const clip of clips) {
+    if (options?.excludeClipId && clip.id === options.excludeClipId) continue
     if (!isPlayheadSnapClipKind(clip.kind)) continue
     times.add(Math.round(clip.startTime))
     times.add(Math.round(clip.endTime))
   }
+  if (options?.includeRuler && options.durationSec != null && options.durationSec > 0) {
+    for (const t of getRulerTicks(options.durationSec)) {
+      times.add(t)
+    }
+  }
+  return [...times]
+}
+
+/** 条块拖动用的吸附目标：其他条块边缘 + 刻度 + 播放指针 */
+export function buildClipDragSnapTargets(
+  clips: Pick<TimelineDisplayClip, 'id' | 'kind' | 'startTime' | 'endTime'>[],
+  playheadSec: number,
+  durationSec: number,
+  excludeClipId?: string,
+): number[] {
+  const times = new Set(
+    collectSnapTargetTimes(clips, {
+      excludeClipId,
+      durationSec,
+      includeRuler: true,
+    }),
+  )
+  times.add(Math.round(playheadSec))
   return [...times]
 }
 

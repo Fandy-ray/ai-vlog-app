@@ -10,6 +10,8 @@ interface FilteredMediaProps {
   objectFit?: 'cover' | 'contain'
   videoSrc?: string
   videoRef?: RefObject<HTMLVideoElement | null>
+  /** 预览是否静音（滤镜层视频始终静音，避免双轨） */
+  muted?: boolean
 }
 
 /** 双层叠加：底层原图/视频 + 顶层滤镜，通过透明度控制强度 */
@@ -22,6 +24,7 @@ export function FilteredMedia({
   objectFit = 'cover',
   videoSrc,
   videoRef,
+  muted = true,
 }: FilteredMediaProps) {
   const opacity = Math.max(0, Math.min(100, intensity)) / 100
   const showFilter = filterCss !== 'none' && opacity > 0
@@ -34,7 +37,7 @@ export function FilteredMedia({
           ref={videoRef}
           src={videoSrc}
           className={mediaClass}
-          muted
+          muted={muted}
           playsInline
           preload="auto"
         />

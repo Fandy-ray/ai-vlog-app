@@ -3,6 +3,7 @@ import { useCallback, useId, useLayoutEffect, useRef, useState } from 'react'
 import type { NormalizedCrop } from '@/types/clipTransform'
 import {
   computeContainRect,
+  createCenteredCropForAspect,
   cropToPixelRect,
   getContentAspect,
   normalizeCrop,
@@ -31,6 +32,13 @@ type DragMode =
   | 'bottom-right'
 
 const MIN_FRAC = 0.12
+
+const ASPECT_PRESETS: { label: string; aspect: number }[] = [
+  { label: '16:9', aspect: 16 / 9 },
+  { label: '9:16', aspect: 9 / 16 },
+  { label: '1:1', aspect: 1 },
+  { label: '4:3', aspect: 4 / 3 },
+]
 
 function clampRect(rect: PixelRect, fit: PixelRect): PixelRect {
   const minW = fit.width * MIN_FRAC
@@ -199,7 +207,31 @@ export function VideoCropOverlay({
         ))}
       </div>
 
-      <div className="absolute inset-x-0 top-2 z-50 flex items-center justify-center gap-2 px-3">
+      <div className="absolute inset-x-0 bottom-3 z-50 flex flex-col items-center gap-2 px-3">
+        <div className="flex flex-wrap items-center justify-center gap-1.5">
+          {ASPECT_PRESETS.map(({ label, aspect }) => (
+            <button
+              key={label}
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation()
+                if (!fitRect) return
+                const next = createCenteredCropForAspect(
+                  aspect,
+                  sourceAspect,
+                  rotation,
+                )
+                const pixelBox = cropToPixelRect(normalizeCrop(next), fitRect)
+                setBox(pixelBox)
+                onChange(next)
+              }}
+              className="rounded-full bg-black/45 px-2.5 py-0.5 text-[10px] text-white backdrop-blur-sm transition-colors hover:bg-primary/80"
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        <div className="flex items-center justify-center gap-2">
         <button
           type="button"
           onClick={(e) => {
@@ -222,6 +254,7 @@ export function VideoCropOverlay({
           <Check size={14} />
           完成裁剪
         </button>
+        </div>
       </div>
     </div>
   )
