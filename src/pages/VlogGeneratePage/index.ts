@@ -1,0 +1,1 @@
+export { VlogGeneratePage } from './VlogGeneratePage'

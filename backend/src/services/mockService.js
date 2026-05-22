@@ -174,7 +174,8 @@ function registerUploadedMaterial(options = {}) {
     tags: ['upload', type].concat(options.tags || []),
     sortWeight: Number(options.sortWeight || 50 + uploadedMaterials.length),
     uri: options.uri || `mock://uploads/${id}`,
-    source: options.source || 'upload'
+    source: options.source || 'upload',
+    sceneId: options.sceneId || ''
   }
 
   uploadedMaterials.push(material)
