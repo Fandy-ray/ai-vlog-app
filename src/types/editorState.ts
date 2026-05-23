@@ -22,12 +22,33 @@ export interface TextOverlay {
   endTime: number
 }
 
+export interface DoodlePoint {
+  x: number
+  y: number
+  at: number
+}
+
+export interface DoodleStroke {
+  color: string
+  width: number
+  erasing: boolean
+  points: DoodlePoint[]
+}
+
+export interface AnimatedDoodle {
+  strokes: DoodleStroke[]
+  drawDuration: number
+  holdDuration: number
+  fadeDuration: number
+}
+
 export interface StickerOverlay {
   id: string
   stickerId: string
   imageUrl?: string
   imageFit?: 'contain' | 'cover'
   name?: string
+  animatedDoodle?: AnimatedDoodle
   x: number
   y: number
   width: number

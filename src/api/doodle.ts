@@ -51,3 +51,22 @@ export async function generateDoodleImage(
   }
   return data.data
 }
+
+export async function storeDoodleAsset(image: Blob): Promise<string> {
+  const form = new FormData()
+  form.append('image', image, 'magic-doodle-foreground.png')
+  const response = await fetch('/api/doodle/assets', {
+    method: 'POST',
+    body: form,
+  })
+
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response))
+  }
+
+  const data = await response.json()
+  if (data.code !== 0 || !data.data?.imageUrl) {
+    throw new Error(data.message || '透明图保存失败')
+  }
+  return data.data.imageUrl
+}

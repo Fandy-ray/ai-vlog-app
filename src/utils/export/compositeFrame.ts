@@ -11,6 +11,7 @@ import { getClipAtTime } from '@/data/mockProject'
 import type { EditorSnapshot, TextOverlay } from '@/types/editorState'
 import { isActiveAtTime } from '@/utils/timeRange'
 import { drawClipMedia } from '@/utils/drawClipMedia'
+import { drawAnimatedDoodle } from '@/utils/animatedDoodle'
 import { drawEffectOverlay } from './effectsCanvas'
 
 export const EXPORT_WIDTH = 1280
@@ -190,6 +191,7 @@ export interface CompositeContext {
   videoElements: Map<string, HTMLVideoElement>
   imageCache: Map<string, HTMLImageElement>
   stickerImages: Map<string, HTMLImageElement>
+  doodleCanvas: HTMLCanvasElement
 }
 
 export async function prepareCompositeContext(
@@ -200,6 +202,7 @@ export async function prepareCompositeContext(
   const videoElements = new Map<string, HTMLVideoElement>()
   const imageCache = new Map<string, HTMLImageElement>()
   const stickerImages = new Map<string, HTMLImageElement>()
+  const doodleCanvas = document.createElement('canvas')
 
   await document.fonts.ready
   await Promise.all(
@@ -210,6 +213,7 @@ export async function prepareCompositeContext(
 
   const stickerSources = new Map<string, EditorSnapshot['stickerOverlays'][number]>()
   for (const sticker of snapshot.stickerOverlays) {
+    if (sticker.animatedDoodle) continue
     stickerSources.set(getStickerImageKey(sticker), sticker)
   }
   for (const [key, sticker] of stickerSources) {
@@ -249,7 +253,15 @@ export async function prepareCompositeContext(
     }),
   )
 
-  return { clips, totalDuration, snapshot, videoElements, imageCache, stickerImages }
+  return {
+    clips,
+    totalDuration,
+    snapshot,
+    videoElements,
+    imageCache,
+    stickerImages,
+    doodleCanvas,
+  }
 }
 
 export interface CompositeFrameOptions {
@@ -263,7 +275,15 @@ export async function compositeFrameAt(
   globalTime: number,
   options: CompositeFrameOptions = {},
 ): Promise<void> {
-  const { clips, totalDuration, snapshot, videoElements, imageCache, stickerImages } =
+  const {
+    clips,
+    totalDuration,
+    snapshot,
+    videoElements,
+    imageCache,
+    stickerImages,
+    doodleCanvas,
+  } =
     context
   const width = options.width ?? EXPORT_WIDTH
   const height = options.height ?? EXPORT_HEIGHT
@@ -316,6 +336,23 @@ export async function compositeFrameAt(
   }
 
   for (const sticker of snapshot.stickerOverlays) {
+    if (!isActiveAtTime(t, sticker)) continue
+    if (sticker.animatedDoodle) {
+      if (doodleCanvas.width !== width) doodleCanvas.width = width
+      if (doodleCanvas.height !== height) doodleCanvas.height = height
+      const doodleCtx = doodleCanvas.getContext('2d')
+      if (!doodleCtx) continue
+      doodleCtx.clearRect(0, 0, width, height)
+      drawAnimatedDoodle(
+        doodleCtx,
+        sticker.animatedDoodle,
+        t - sticker.startTime,
+        width,
+        height,
+      )
+      ctx.drawImage(doodleCanvas, 0, 0)
+      continue
+    }
     drawSticker(ctx, width, height, sticker, stickerImages)
   }
 }
@@ -329,4 +366,6 @@ export function disposeCompositeContext(context: CompositeContext) {
   context.videoElements.clear()
   context.imageCache.clear()
   context.stickerImages.clear()
+  context.doodleCanvas.width = 0
+  context.doodleCanvas.height = 0
 }

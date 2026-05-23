@@ -15,7 +15,12 @@ import { FilteredMedia } from '@/components/editor/FilteredMedia'
 import type { ClipTransform } from '@/types/clipTransform'
 import { VideoStickerOverlay } from '@/components/editor/VideoStickerOverlay'
 import { VideoTextOverlay } from '@/components/editor/VideoTextOverlay'
-import type { StickerOverlay, TextOverlay } from '@/types/editorState'
+import {
+  VideoDoodlePlaybackOverlay,
+  VideoDoodleRecordingOverlay,
+} from '@/components/editor/VideoDoodleOverlay'
+import type { DoodleStroke, StickerOverlay, TextOverlay } from '@/types/editorState'
+import type { DoodleBrushSettings } from '@/utils/animatedDoodle'
 import { EDITOR_PREVIEW_ATTR } from '@/utils/editorSelectionHitTest'
 import { drawClipMedia } from '@/utils/drawClipMedia'
 import { clamp, formatTime } from '@/utils/formatTime'
@@ -37,6 +42,14 @@ export interface VideoPreviewHandle {
     height?: number
     includeFilter?: boolean
   }) => Promise<string>
+}
+
+export interface DoodleRecordingPreview {
+  strokes: DoodleStroke[]
+  settings: DoodleBrushSettings
+  startTime: number | null
+  onStart: () => number
+  onChange: (strokes: DoodleStroke[]) => void
 }
 
 interface VideoPreviewProps {
@@ -73,6 +86,7 @@ interface VideoPreviewProps {
   onPreviewContextMenu?: (e: React.MouseEvent) => void
   selectedTextId?: string | null
   selectedStickerId?: string | null
+  doodleRecording?: DoodleRecordingPreview | null
   onTogglePlay: () => void
   onSeek: (ratio: number) => void
   isCropMode?: boolean
@@ -125,6 +139,7 @@ export const VideoPreview = forwardRef<VideoPreviewHandle, VideoPreviewProps>(fu
   onPreviewContextMenu,
   selectedTextId = null,
   selectedStickerId = null,
+  doodleRecording = null,
   onTogglePlay,
   onSeek,
   isCropMode = false,
@@ -358,9 +373,12 @@ export const VideoPreview = forwardRef<VideoPreviewHandle, VideoPreviewProps>(fu
     ({ overlay }) =>
       overlay.content.trim() && isActiveAtTime(currentTime, overlay),
   )
-  const visibleStickers = stickerItems.filter(({ overlay }) =>
-    isActiveAtTime(currentTime, overlay),
-  )
+  const visibleStickers = stickerItems.filter(({ overlay }) => {
+    if (overlay.animatedDoodle) {
+      return currentTime >= overlay.startTime && currentTime <= overlay.endTime
+    }
+    return isActiveAtTime(currentTime, overlay)
+  })
 
   const handleProgressPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     e.preventDefault()
@@ -475,28 +493,49 @@ export const VideoPreview = forwardRef<VideoPreviewHandle, VideoPreviewProps>(fu
             />
           ))}
 
-          {visibleStickers.map(({ overlay, editable }) => (
-            <VideoStickerOverlay
-              key={overlay.id}
-              overlay={overlay}
-              editable={editable}
-              selected={editable || selectedStickerId === overlay.id}
-              onChange={
-                editable && onStickerChange
-                  ? (patch) => onStickerChange(overlay.id, patch)
-                  : undefined
-              }
-              onTransformEnd={editable ? onStickerTransformEnd : undefined}
-              onActivate={
-                onStickerActivate ? () => onStickerActivate(overlay.id) : undefined
-              }
-              onContextMenu={
-                onStickerContextMenu
-                  ? (e) => onStickerContextMenu(e, overlay.id)
-                  : undefined
-              }
+          {visibleStickers.map(({ overlay, editable }) =>
+            overlay.animatedDoodle ? (
+              <VideoDoodlePlaybackOverlay
+                key={overlay.id}
+                animation={overlay.animatedDoodle}
+                currentTime={currentTime}
+                startTime={overlay.startTime}
+              />
+            ) : (
+              <VideoStickerOverlay
+                key={overlay.id}
+                overlay={overlay}
+                editable={editable}
+                selected={editable || selectedStickerId === overlay.id}
+                onChange={
+                  editable && onStickerChange
+                    ? (patch) => onStickerChange(overlay.id, patch)
+                    : undefined
+                }
+                onTransformEnd={editable ? onStickerTransformEnd : undefined}
+                onActivate={
+                  onStickerActivate ? () => onStickerActivate(overlay.id) : undefined
+                }
+                onContextMenu={
+                  onStickerContextMenu
+                    ? (e) => onStickerContextMenu(e, overlay.id)
+                    : undefined
+                }
+              />
+            ),
+          )}
+
+          {doodleRecording && (
+            <VideoDoodleRecordingOverlay
+              strokes={doodleRecording.strokes}
+              settings={doodleRecording.settings}
+              currentTime={currentTime}
+              recordingStartTime={doodleRecording.startTime}
+              isPlaying={isPlaying}
+              onRecordingStart={doodleRecording.onStart}
+              onStrokesChange={doodleRecording.onChange}
             />
-          ))}
+          )}
 
           </div>
 

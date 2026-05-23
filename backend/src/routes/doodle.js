@@ -1,7 +1,12 @@
 const express = require('express')
+const multer = require('multer')
 const vivoImageService = require('../services/vivoImageService')
 
 const router = express.Router()
+const foregroundUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 15 * 1024 * 1024 },
+})
 
 function pickParameters(body) {
   const parameters = body.parameters && typeof body.parameters === 'object'
@@ -79,6 +84,39 @@ router.post('/doodle/generate', async (req, res) => {
       storeWarning: result.storeWarning,
     },
   })
+})
+
+router.post('/doodle/assets', foregroundUpload.single('image'), async (req, res) => {
+  const pngSignature = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+  if (
+    !req.file ||
+    req.file.mimetype !== 'image/png' ||
+    req.file.buffer.length < pngSignature.length ||
+    !req.file.buffer.subarray(0, pngSignature.length).equals(pngSignature)
+  ) {
+    res.status(400).json({
+      code: 'invalid_foreground',
+      message: '仅支持保存 PNG 透明图层',
+    })
+    return
+  }
+
+  try {
+    const stored = await vivoImageService.storeImageBuffer(
+      req.file.buffer,
+      req.file.mimetype,
+    )
+    res.json({
+      code: 0,
+      message: 'success',
+      data: { imageUrl: stored.url },
+    })
+  } catch (error) {
+    res.status(500).json({
+      code: 'store_foreground_failed',
+      message: error.message || '透明图保存失败',
+    })
+  }
 })
 
 module.exports = router

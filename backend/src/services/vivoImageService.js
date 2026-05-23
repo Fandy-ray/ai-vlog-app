@@ -247,4 +247,5 @@ module.exports = {
   isConfigured,
   generateImage,
   generateAndStoreImage,
+  storeImageBuffer: writeGeneratedImage,
 }
