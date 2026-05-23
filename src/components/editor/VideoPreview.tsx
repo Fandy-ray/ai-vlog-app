@@ -1,5 +1,12 @@
 import { Maximize2, Minimize2, Pause, Play, X } from 'lucide-react'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import {
+  forwardRef,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useRef,
+  useState,
+} from 'react'
 import { ClipTransformLayer } from '@/components/editor/ClipTransformLayer'
 import { VideoCropOverlay } from '@/components/editor/VideoCropOverlay'
 import type { NormalizedCrop } from '@/types/clipTransform'
@@ -10,6 +17,7 @@ import { VideoStickerOverlay } from '@/components/editor/VideoStickerOverlay'
 import { VideoTextOverlay } from '@/components/editor/VideoTextOverlay'
 import type { StickerOverlay, TextOverlay } from '@/types/editorState'
 import { EDITOR_PREVIEW_ATTR } from '@/utils/editorSelectionHitTest'
+import { drawClipMedia } from '@/utils/drawClipMedia'
 import { clamp, formatTime } from '@/utils/formatTime'
 import { isActiveAtTime } from '@/utils/timeRange'
 
@@ -21,6 +29,14 @@ export interface StickerPreviewItem {
 export interface TextPreviewItem {
   overlay: TextOverlay
   editable: boolean
+}
+
+export interface VideoPreviewHandle {
+  captureFrame: (options?: {
+    width?: number
+    height?: number
+    includeFilter?: boolean
+  }) => Promise<string>
 }
 
 interface VideoPreviewProps {
@@ -70,7 +86,17 @@ interface VideoPreviewProps {
   previewVolume?: number
 }
 
-export function VideoPreview({
+function loadPreviewImage(src: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const img = new Image()
+    img.crossOrigin = 'anonymous'
+    img.onload = () => resolve(img)
+    img.onerror = () => reject(new Error('preview image load failed'))
+    img.src = src
+  })
+}
+
+export const VideoPreview = forwardRef<VideoPreviewHandle, VideoPreviewProps>(function VideoPreview({
   poster,
   videoSrc,
   clipTransform,
@@ -109,7 +135,7 @@ export function VideoPreview({
   onSourceAspectChange,
   previewMuted = false,
   previewVolume = 1,
-}: VideoPreviewProps) {
+}: VideoPreviewProps, ref) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const lastVideoSrcRef = useRef<string | undefined>(undefined)
   const progressRef = useRef<HTMLDivElement>(null)
@@ -120,6 +146,42 @@ export function VideoPreview({
   const [nativeFullscreen, setNativeFullscreen] = useState(false)
   const isExpanded = overlayExpanded || nativeFullscreen
   const progress = duration > 0 ? clamp(currentTime / duration, 0, 1) : 0
+
+  const captureFrame = useCallback(
+    async (options: { width?: number; height?: number; includeFilter?: boolean } = {}) => {
+      const width = options.width ?? 1280
+      const height = options.height ?? 720
+      const canvas = document.createElement('canvas')
+      canvas.width = width
+      canvas.height = height
+      const ctx = canvas.getContext('2d')
+      if (!ctx) throw new Error('canvas unavailable')
+
+      ctx.fillStyle = '#000'
+      ctx.fillRect(0, 0, width, height)
+
+      const video = videoRef.current
+      const source =
+        videoSrc && video && video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA
+          ? video
+          : await loadPreviewImage(poster)
+
+      drawClipMedia(ctx, source, width, height, clipTransform)
+
+      if (options.includeFilter && filterCss !== 'none' && filterIntensity > 0) {
+        ctx.save()
+        ctx.globalAlpha = Math.max(0, Math.min(100, filterIntensity)) / 100
+        ctx.filter = filterCss
+        drawClipMedia(ctx, source, width, height, clipTransform)
+        ctx.restore()
+      }
+
+      return canvas.toDataURL('image/jpeg', 0.88)
+    },
+    [clipTransform, filterCss, filterIntensity, poster, videoSrc],
+  )
+
+  useImperativeHandle(ref, () => ({ captureFrame }), [captureFrame])
 
   const exitExpanded = useCallback(async () => {
     if (document.fullscreenElement) {
@@ -505,4 +567,4 @@ export function VideoPreview({
       </div>
     </section>
   )
-}
+})

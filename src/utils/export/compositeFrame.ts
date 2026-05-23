@@ -5,7 +5,7 @@ import {
   resolveTextBackground,
   resolveTextDimensions,
 } from '@/data/textStyles'
-import { drawStickerFallback, loadStickerImage } from './stickerImage'
+import { drawStickerFallback, getStickerImageKey, loadStickerImage } from './stickerImage'
 import type { VideoClip } from '@/data/mockProject'
 import { getClipAtTime } from '@/data/mockProject'
 import type { EditorSnapshot, TextOverlay } from '@/types/editorState'
@@ -145,18 +145,41 @@ function drawSticker(
   const boxW = (sticker.width / 100) * width
   const boxH = (sticker.height / 100) * height
   const rotation = ((sticker.rotation ?? 0) * Math.PI) / 180
-  const img = stickerImages.get(sticker.stickerId)
+  const img = stickerImages.get(getStickerImageKey(sticker))
 
   ctx.save()
   ctx.translate(cx, cy)
   ctx.rotate(rotation)
 
-  if (img) {
+  if (img && sticker.imageUrl) {
+    drawFittedStickerImage(ctx, img, boxW, boxH, sticker.imageFit ?? 'contain')
+  } else if (img) {
     ctx.drawImage(img, -boxW / 2, -boxH / 2, boxW, boxH)
   } else {
     drawStickerFallback(ctx, sticker.stickerId, boxW, boxH)
   }
 
+  ctx.restore()
+}
+
+function drawFittedStickerImage(
+  ctx: CanvasRenderingContext2D,
+  img: HTMLImageElement,
+  boxW: number,
+  boxH: number,
+  fit: 'contain' | 'cover',
+) {
+  const imageAspect = (img.naturalWidth || boxW) / Math.max(1, img.naturalHeight || boxH)
+  const boxAspect = boxW / Math.max(1, boxH)
+  const useWidth =
+    fit === 'cover' ? imageAspect < boxAspect : imageAspect > boxAspect
+  const drawW = useWidth ? boxW : boxH * imageAspect
+  const drawH = useWidth ? boxW / imageAspect : boxH
+  ctx.save()
+  ctx.beginPath()
+  ctx.rect(-boxW / 2, -boxH / 2, boxW, boxH)
+  ctx.clip()
+  ctx.drawImage(img, -drawW / 2, -drawH / 2, drawW, drawH)
   ctx.restore()
 }
 
@@ -185,12 +208,13 @@ export async function prepareCompositeContext(
     ),
   )
 
-  const stickerIds = [
-    ...new Set(snapshot.stickerOverlays.map((s) => s.stickerId)),
-  ]
-  for (const id of stickerIds) {
-    const img = await loadStickerImage(id)
-    if (img) stickerImages.set(id, img)
+  const stickerSources = new Map<string, EditorSnapshot['stickerOverlays'][number]>()
+  for (const sticker of snapshot.stickerOverlays) {
+    stickerSources.set(getStickerImageKey(sticker), sticker)
+  }
+  for (const [key, sticker] of stickerSources) {
+    const img = await loadStickerImage(sticker)
+    if (img) stickerImages.set(key, img)
   }
 
   await Promise.all(

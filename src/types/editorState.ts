@@ -25,6 +25,9 @@ export interface TextOverlay {
 export interface StickerOverlay {
   id: string
   stickerId: string
+  imageUrl?: string
+  imageFit?: 'contain' | 'cover'
+  name?: string
   x: number
   y: number
   width: number

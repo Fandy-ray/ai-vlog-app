@@ -47,6 +47,7 @@ export function VideoStickerOverlay({
   const { width, height } = overlay
   const rotation = overlay.rotation ?? 0
   const emoji = getStickerEmoji(overlay.stickerId)
+  const imageFit = overlay.imageFit ?? 'contain'
 
   const getVideoRect = useCallback(() => {
     const parent = boxRef.current?.offsetParent as HTMLElement | null
@@ -339,16 +340,27 @@ export function VideoStickerOverlay({
                 : ''
         }`}
       >
-        <span
-          className="inline-block origin-center leading-none drop-shadow-[0_2px_8px_rgb(0_0_0/35%)]"
-          style={{
-            fontSize: '88cqmin',
-            transform: 'scale(calc(100cqw / 100cqmin), calc(100cqh / 100cqmin))',
-          }}
-          aria-hidden
-        >
-          {emoji}
-        </span>
+        {overlay.imageUrl ? (
+          <img
+            src={overlay.imageUrl}
+            alt={overlay.name ?? 'AI generated sticker'}
+            className={`h-full w-full ${
+              imageFit === 'cover' ? 'object-cover' : 'object-contain'
+            } drop-shadow-[0_2px_8px_rgb(0_0_0/35%)]`}
+            draggable={false}
+          />
+        ) : (
+          <span
+            className="inline-block origin-center leading-none drop-shadow-[0_2px_8px_rgb(0_0_0/35%)]"
+            style={{
+              fontSize: '88cqmin',
+              transform: 'scale(calc(100cqw / 100cqmin), calc(100cqh / 100cqmin))',
+            }}
+            aria-hidden
+          >
+            {emoji}
+          </span>
+        )}
       </span>
     </span>
   )

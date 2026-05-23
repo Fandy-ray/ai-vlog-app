@@ -13,7 +13,8 @@ export function buildTextClipLabel(content: string): string {
   return `文字 · ${t || '未填写'}`
 }
 
-export function buildStickerClipLabel(stickerId: string): string {
+export function buildStickerClipLabel(stickerId: string, name?: string): string {
+  if (name) return `贴纸 · ${name}`
   const preset = getStickerPreset(stickerId)
   const hint = preset ? `${preset.emoji} ${preset.name}` : stickerId
   return `贴纸 · ${hint}`
@@ -61,7 +62,7 @@ export function stickerToDisplayClip(
   return {
     id: overlay.id,
     kind: 'sticker',
-    label: buildStickerClipLabel(overlay.stickerId),
+    label: buildStickerClipLabel(overlay.stickerId, overlay.name),
     startTime,
     endTime,
     selected,
