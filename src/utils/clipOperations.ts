@@ -125,14 +125,36 @@ export const CLIP_SPEED_OPTIONS = [
   0.25, 0.5, 0.75, 1, 1.25, 1.5, 2,
 ] as const
 
+/** 设置片段倍速，并按倍速反比调整时间轴时长（保持源素材占用量不变） */
 export function setClipPlaybackRate(
   clips: VideoClip[],
   clipId: string,
   rate: number,
-): VideoClip[] {
-  return clips.map((clip) =>
-    clip.id === clipId ? { ...clip, playbackRate: rate } : clip,
+): { clips: VideoClip[]; duration: number } {
+  const clampedRate = Math.max(0.1, Math.min(16, rate))
+  const index = clips.findIndex((c) => c.id === clipId)
+  if (index === -1) {
+    return { clips, duration: totalDuration(clips) }
+  }
+
+  const clip = clips[index]
+  const oldRate = clip.playbackRate ?? 1
+  if (Math.abs(oldRate - clampedRate) < 0.001) {
+    return { clips, duration: totalDuration(clips) }
+  }
+
+  const newDuration = Math.max(
+    MIN_PART_SEC,
+    clip.duration * (oldRate / clampedRate),
   )
+
+  const updated = clips.map((c, i) =>
+    i === index
+      ? { ...c, playbackRate: clampedRate, duration: newDuration }
+      : c,
+  )
+  const reindexed = reindexClipStarts(updated)
+  return { clips: reindexed, duration: totalDuration(reindexed) }
 }
 
 export function toggleClipMirror(clips: VideoClip[], clipId: string): VideoClip[] {

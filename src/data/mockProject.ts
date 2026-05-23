@@ -15,7 +15,7 @@ export interface VideoClip {
   sourceOffset?: number
   /** 画面变换：镜像 / 旋转 / 裁剪 */
   transform?: ClipTransform
-  /** 预览播放倍速（不改变时间轴片段时长） */
+  /** 播放倍速；时间轴时长随倍速反比变化 */
   playbackRate?: number
 }
 

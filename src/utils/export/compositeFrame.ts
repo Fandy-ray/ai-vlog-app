@@ -245,7 +245,11 @@ export async function compositeFrameAt(
   const height = options.height ?? EXPORT_HEIGHT
   const t = Math.max(0, Math.min(globalTime, totalDuration - 0.001))
   const clip = getClipAtTime(t, clips, totalDuration)
-  const localTime = Math.max(0, (clip.sourceOffset ?? 0) + t - clip.start)
+  const rate = clip.playbackRate ?? 1
+  const localTime = Math.max(
+    0,
+    (clip.sourceOffset ?? 0) + (t - clip.start) * rate,
+  )
   const filterCss = getFilterCss(snapshot.filterId)
   const intensity = snapshot.filterIntensity
 

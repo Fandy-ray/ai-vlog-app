@@ -4,6 +4,9 @@ export const TIMELINE_INSET_PCT = 5
 /** 相邻刻度标签最小水平间距（占时间轴全宽的百分比），用于避免文字重叠 */
 export const MIN_RULER_LABEL_GAP_PCT = 7
 
+/** 结束时间标签与相邻刻度的最小间距（结束标签较宽，需更大留白） */
+export const MIN_RULER_END_LABEL_GAP_PCT = 11
+
 export type RulerLabelAlign = 'start' | 'center' | 'end'
 
 export interface RulerTickDisplay {
@@ -47,13 +50,22 @@ export function getRulerTicks(durationSec: number): number[] {
 /**
  * 计算刻度展示：锚点位置仍为真实时间；过近时隐藏普通主刻度标签，保留起止时间。
  */
-export function getRulerTicksForDisplay(durationSec: number): RulerTickDisplay[] {
+export function getRulerTicksForDisplay(
+  durationSec: number,
+  options?: { contentArea?: boolean },
+): RulerTickDisplay[] {
   const ticks = getRulerTicks(durationSec)
   const duration = Math.max(0, Math.floor(durationSec))
+  const toPercent = options?.contentArea
+    ? timeToContentPercent
+    : timeToTimelinePercent
+  const endGap = options?.contentArea
+    ? MIN_RULER_END_LABEL_GAP_PCT
+    : MIN_RULER_LABEL_GAP_PCT
 
   const positions = ticks.map((sec) => ({
     sec,
-    pct: timeToTimelinePercent(sec, durationSec),
+    pct: toPercent(sec, durationSec),
     isStart: sec === 0,
     isEnd: duration > 0 && sec === duration,
   }))
@@ -76,7 +88,7 @@ export function getRulerTicksForDisplay(durationSec: number): RulerTickDisplay[]
   if (endIdx > 0) {
     const endPct = positions[endIdx].pct
     for (let i = endIdx - 1; i >= 0; i--) {
-      if (endPct - positions[i].pct < MIN_RULER_LABEL_GAP_PCT) {
+      if (endPct - positions[i].pct < endGap) {
         showLabel[i] = false
       } else {
         break
@@ -189,7 +201,7 @@ export const TIMELINE_ADD_COLUMN_CLASS = 'w-11'
 
 /** 时间刻度尺行（与右侧添加列占位同高同线） */
 export const TIMELINE_RULER_ROW_CLASS =
-  'relative flex h-7 shrink-0 items-end overflow-visible border-b border-border/60 pb-1'
+  'relative flex h-7 shrink-0 items-end overflow-hidden border-b border-border/60 px-1 pb-1'
 
 /** 视频素材轨单行高度（与右侧添加按钮一致） */
 export const TIMELINE_VIDEO_CLIP_ROW_CLASS = 'relative h-14 w-full overflow-hidden rounded-lg'

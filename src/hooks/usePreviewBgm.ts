@@ -109,7 +109,9 @@ export function usePreviewBgm({
         : rangeOffset
 
     if (isPlaying && inRange) {
-      if (Math.abs(audio.currentTime - targetTime) > 0.2) {
+      const drift = Math.abs(audio.currentTime - targetTime)
+      const seekThreshold = isPlaying ? 0.45 : 0.08
+      if (drift > seekThreshold) {
         audio.currentTime = targetTime
       }
       void audio.play().catch(() => {})
@@ -119,7 +121,11 @@ export function usePreviewBgm({
     audio.pause()
     if (!inRange && Number.isFinite(duration)) {
       audio.currentTime = 0
-    } else if (!isPlaying && inRange && Math.abs(audio.currentTime - targetTime) > 0.05) {
+    } else if (
+      !isPlaying &&
+      inRange &&
+      Math.abs(audio.currentTime - targetTime) > 0.08
+    ) {
       audio.currentTime = targetTime
     }
   }, [bgmId, bgmRange, currentTime, isPlaying, volume])

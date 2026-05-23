@@ -22,7 +22,7 @@ interface TimelineRulerProps {
 const ALIGN_CLASS: Record<RulerLabelAlign, string> = {
   start: 'items-start',
   center: 'items-center -translate-x-1/2',
-  end: 'items-end -translate-x-full',
+  end: 'items-end',
 }
 
 export function TimelineRuler({
@@ -32,7 +32,10 @@ export function TimelineRuler({
   onBackgroundPointerDown,
   contentArea = false,
 }: TimelineRulerProps) {
-  const tickDisplays = useMemo(() => getRulerTicksForDisplay(duration), [duration])
+  const tickDisplays = useMemo(
+    () => getRulerTicksForDisplay(duration, { contentArea }),
+    [duration, contentArea],
+  )
   const endSec = Math.floor(duration)
   const timeToPercent = contentArea ? timeToContentPercent : timeToTimelinePercent
   const timeFromClientX = contentArea ? timeFromContentPointer : timeFromPointer
@@ -67,11 +70,24 @@ export function TimelineRuler({
       onPointerDown={handlePointerDown}
       aria-label="时间刻度"
     >
-      {tickDisplays.map(({ sec, align, showLabel }) => (
+      {tickDisplays.map(({ sec, align, showLabel }) => {
+        const isStart = sec === 0
+        const isEnd = endSec > 0 && sec === endSec
+        const anchorClass = isStart
+          ? 'left-0'
+          : isEnd
+            ? 'right-0'
+            : `${ALIGN_CLASS[align]}`
+        const style =
+          isStart || isEnd
+            ? undefined
+            : { left: `${timeToPercent(sec, duration)}%` }
+
+        return (
         <div
           key={sec}
-          className={`pointer-events-none absolute bottom-0 top-3 ${ALIGN_CLASS[align]}`}
-          style={{ left: `${timeToPercent(sec, duration)}%` }}
+          className={`pointer-events-none absolute bottom-0 top-3 flex flex-col ${anchorClass}`}
+          style={style}
         >
           <div className="flex h-full flex-col">
             {showLabel && (
@@ -97,7 +113,8 @@ export function TimelineRuler({
             />
           </div>
         </div>
-      ))}
+        )
+      })}
     </header>
   )
 }

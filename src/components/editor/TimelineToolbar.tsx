@@ -37,6 +37,7 @@ function formatSpeedLabel(rate: number) {
 
 interface TimelineToolbarProps {
   onTool: (id: TimelineToolId) => void
+  /** 未选中素材时禁用全部工具（含倍速） */
   disabled?: boolean
   canSplit?: boolean
   canDelete?: boolean
@@ -56,6 +57,7 @@ export function TimelineToolbar({
 }: TimelineToolbarProps) {
   const [speedOpen, setSpeedOpen] = useState(false)
   const speedWrapRef = useRef<HTMLDivElement>(null)
+  const speedMenuRef = useRef<HTMLUListElement>(null)
   const speedBtnRef = useRef<HTMLButtonElement>(null)
   const [menuPos, setMenuPos] = useState<{ top: number; left: number } | null>(
     null,
@@ -85,6 +87,7 @@ export function TimelineToolbar({
     const onPointerDown = (e: PointerEvent) => {
       const target = e.target as Node
       if (speedWrapRef.current?.contains(target)) return
+      if (speedMenuRef.current?.contains(target)) return
       setSpeedOpen(false)
     }
     window.addEventListener('pointerdown', onPointerDown)
@@ -94,10 +97,15 @@ export function TimelineToolbar({
   const speedLabel = formatSpeedLabel(playbackRate)
   const speedDisabled = disabled || !onPlaybackRateChange
 
+  useEffect(() => {
+    if (disabled) setSpeedOpen(false)
+  }, [disabled])
+
   const speedMenu =
     speedOpen && !speedDisabled && menuPos
       ? createPortal(
           <ul
+            ref={speedMenuRef}
             role="listbox"
             aria-label="选择播放倍速"
             style={{

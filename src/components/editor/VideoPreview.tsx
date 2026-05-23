@@ -29,8 +29,14 @@ interface VideoPreviewProps {
   clipTransform?: ClipTransform
   /** 当前片段内的播放时间 */
   clipTime?: number
+  /** 当前片段在时间轴上的起点（秒） */
+  clipTimelineStart?: number
+  /** 源视频起始偏移（秒） */
+  clipSourceOffset?: number
   /** 当前片段播放倍速 */
   playbackRate?: number
+  /** 播放中由视频时钟回写时间轴 */
+  onTimelineSync?: (timelineTime: number) => void
   currentTime: number
   duration: number
   isPlaying: boolean
@@ -69,7 +75,10 @@ export function VideoPreview({
   videoSrc,
   clipTransform,
   clipTime = 0,
+  clipTimelineStart = 0,
+  clipSourceOffset = 0,
   playbackRate = 1,
+  onTimelineSync,
   currentTime,
   duration,
   isPlaying,
@@ -102,6 +111,7 @@ export function VideoPreview({
   previewVolume = 1,
 }: VideoPreviewProps) {
   const videoRef = useRef<HTMLVideoElement>(null)
+  const lastVideoSrcRef = useRef<string | undefined>(undefined)
   const progressRef = useRef<HTMLDivElement>(null)
   const previewContainerRef = useRef<HTMLDivElement>(null)
   const [sourceAspect, setSourceAspect] = useState(16 / 9)
@@ -212,16 +222,53 @@ export function VideoPreview({
     if (!video || !videoSrc) return
     const target = clipTime
     if (!Number.isFinite(target)) return
-    if (Math.abs(video.currentTime - target) > 0.06) {
+
+    const sourceChanged = lastVideoSrcRef.current !== videoSrc
+    lastVideoSrcRef.current = videoSrc
+    const drift = Math.abs(video.currentTime - target)
+    const threshold = isPlaying ? 0.45 : 0.06
+
+    if (sourceChanged || drift > threshold) {
       video.currentTime = target
     }
-  }, [clipTime, currentTime, videoSrc])
+  }, [clipTime, videoSrc, isPlaying])
+
+  useEffect(() => {
+    if (!isPlaying || !videoSrc || !onTimelineSync) return
+    const video = videoRef.current
+    if (!video) return
+
+    const rate = Math.max(0.1, Math.min(16, playbackRate))
+    const offset = clipSourceOffset
+    const start = clipTimelineStart
+
+    let rafId = 0
+    const tick = () => {
+      const timelineTime = start + (video.currentTime - offset) / rate
+      if (Number.isFinite(timelineTime)) {
+        onTimelineSync(timelineTime)
+      }
+      rafId = requestAnimationFrame(tick)
+    }
+
+    rafId = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(rafId)
+  }, [
+    isPlaying,
+    videoSrc,
+    playbackRate,
+    clipTimelineStart,
+    clipSourceOffset,
+    onTimelineSync,
+  ])
 
   useEffect(() => {
     const video = videoRef.current
     if (!video || !videoSrc) return
     const rate = Math.max(0.1, Math.min(16, playbackRate))
-    video.playbackRate = rate
+    if (Math.abs(video.playbackRate - rate) > 0.001) {
+      video.playbackRate = rate
+    }
     video.muted = previewMuted
     video.volume = Math.max(0, Math.min(1, previewVolume))
   }, [playbackRate, videoSrc, previewMuted, previewVolume])

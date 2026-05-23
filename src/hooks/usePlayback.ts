@@ -1,13 +1,36 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type RefObject,
+} from 'react'
 import { clamp } from '@/utils/formatTime'
 
-export function usePlayback(duration: number, initialTime = 31) {
+export interface UsePlaybackOptions {
+  /** 为 true 时由视频元素驱动时间轴，内部 RAF 不再推进时间 */
+  videoClockRef?: RefObject<boolean>
+}
+
+export function usePlayback(
+  duration: number,
+  initialTime = 31,
+  options?: UsePlaybackOptions,
+) {
   const [currentTime, setCurrentTime] = useState(initialTime)
   const [isPlaying, setIsPlaying] = useState(false)
   const rafRef = useRef<number>(0)
   const lastTickRef = useRef<number>(0)
+  const videoClockRef = options?.videoClockRef
 
   const seek = useCallback(
+    (time: number) => {
+      setCurrentTime(clamp(time, 0, duration))
+    },
+    [duration],
+  )
+
+  const syncTime = useCallback(
     (time: number) => {
       setCurrentTime(clamp(time, 0, duration))
     },
@@ -25,6 +48,11 @@ export function usePlayback(duration: number, initialTime = 31) {
     }
 
     const tick = (now: number) => {
+      if (videoClockRef?.current) {
+        rafRef.current = requestAnimationFrame(tick)
+        return
+      }
+
       if (!lastTickRef.current) lastTickRef.current = now
       const delta = (now - lastTickRef.current) / 1000
       lastTickRef.current = now
@@ -45,7 +73,7 @@ export function usePlayback(duration: number, initialTime = 31) {
     rafRef.current = requestAnimationFrame(tick)
 
     return () => cancelAnimationFrame(rafRef.current)
-  }, [isPlaying, duration])
+  }, [isPlaying, duration, videoClockRef])
 
-  return { currentTime, isPlaying, seek, togglePlay, setIsPlaying }
+  return { currentTime, isPlaying, seek, syncTime, togglePlay, setIsPlaying }
 }

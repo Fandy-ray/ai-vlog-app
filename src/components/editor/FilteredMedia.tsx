@@ -1,4 +1,4 @@
-import type { RefObject } from 'react'
+import { useEffect, useRef, type RefObject } from 'react'
 
 interface FilteredMediaProps {
   src: string
@@ -29,6 +29,39 @@ export function FilteredMedia({
   const opacity = Math.max(0, Math.min(100, intensity)) / 100
   const showFilter = filterCss !== 'none' && opacity > 0
   const mediaClass = `h-full w-full object-${objectFit}`
+  const filterVideoRef = useRef<HTMLVideoElement>(null)
+
+  useEffect(() => {
+    const main = videoRef?.current
+    const overlay = filterVideoRef.current
+    if (!main || !overlay || !videoSrc || !showFilter) return
+
+    const attachStream = () => {
+      const capture = (
+        main as HTMLVideoElement & {
+          captureStream?: () => MediaStream
+        }
+      ).captureStream
+      if (typeof capture !== 'function') return false
+      try {
+        overlay.srcObject = capture.call(main)
+        return true
+      } catch {
+        return false
+      }
+    }
+
+    if (attachStream()) {
+      return () => {
+        overlay.srcObject = null
+      }
+    }
+
+    overlay.src = videoSrc
+    return () => {
+      overlay.removeAttribute('src')
+    }
+  }, [videoRef, videoSrc, showFilter])
 
   return (
     <span className={`relative block overflow-hidden ${className}`}>
@@ -51,7 +84,13 @@ export function FilteredMedia({
           aria-hidden
         >
           {videoSrc ? (
-            <video src={videoSrc} className={mediaClass} muted playsInline />
+            <video
+              ref={filterVideoRef}
+              className={mediaClass}
+              muted
+              playsInline
+              preload="none"
+            />
           ) : (
             <img src={src} alt="" className={mediaClass} draggable={false} />
           )}

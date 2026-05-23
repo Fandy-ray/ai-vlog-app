@@ -12,6 +12,41 @@ export function createDefaultTimeRange(videoDuration: number): TimeRange {
   return { startTime: 0, endTime: max }
 }
 
+/** 是否为铺满整条时间轴的默认存在范围 */
+export function isFullTimelineTimeRange(
+  range: TimeRange,
+  videoDuration: number,
+): boolean {
+  const max = Math.max(0, Math.floor(videoDuration))
+  return range.startTime <= 0 && range.endTime >= Math.max(0, max - 1)
+}
+
+/**
+ * 项目总时长变化时同步存在范围：默认铺满全片；自定义范围按时间轴比例缩放。
+ */
+export function scaleTimeRangeForProjectDuration(
+  range: TimeRange,
+  oldDuration: number,
+  newDuration: number,
+): TimeRange {
+  if (Math.abs(oldDuration - newDuration) < 0.001) {
+    return normalizeTimeRange(range, newDuration).range
+  }
+
+  if (isFullTimelineTimeRange(range, oldDuration)) {
+    return createDefaultTimeRange(newDuration)
+  }
+
+  const ratio = newDuration / Math.max(oldDuration, 0.001)
+  return normalizeTimeRange(
+    {
+      startTime: Math.round(range.startTime * ratio),
+      endTime: Math.round(range.endTime * ratio),
+    },
+    newDuration,
+  ).range
+}
+
 /** 新建对象：开始为当前播放时间（或 0），结束为视频总时长 */
 export function createDefaultTimeRangeFromPlayhead(
   videoDuration: number,

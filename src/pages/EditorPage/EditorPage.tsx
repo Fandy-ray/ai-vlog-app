@@ -114,6 +114,7 @@ import {
   normalizeTimeRange,
   overlayWithNormalizedRange,
   resizeTimeRange,
+  scaleTimeRangeForProjectDuration,
   shiftTimeRange,
   type TimeRange,
 } from '@/utils/timeRange'
@@ -404,10 +405,10 @@ export function EditorPage() {
     }
     return previewOriginalAudioRange
   }, [clipDragPreview, previewOriginalAudioRange])
-  const { currentTime, isPlaying, seek, togglePlay, setIsPlaying } = usePlayback(
-    projectDuration,
-    31,
-  )
+  const previewVideoClockRef = useRef(false)
+
+  const { currentTime, isPlaying, seek, syncTime, togglePlay, setIsPlaying } =
+    usePlayback(projectDuration, 31, { videoClockRef: previewVideoClockRef })
 
   useEffect(() => {
     if (isPlaying) setHighlightFollowsPlayhead(true)
@@ -641,6 +642,25 @@ export function EditorPage() {
     [currentTime, clips, projectDuration],
   )
 
+  previewVideoClockRef.current =
+    Boolean(activeClip.videoSrc) && isPlaying
+
+  const lastPreviewSyncMsRef = useRef(0)
+  const handlePreviewTimelineSync = useCallback(
+    (time: number) => {
+      if (time >= projectDuration) {
+        setIsPlaying(false)
+        syncTime(projectDuration)
+        return
+      }
+      const now = performance.now()
+      if (now - lastPreviewSyncMsRef.current < 40) return
+      lastPreviewSyncMsRef.current = now
+      syncTime(time)
+    },
+    [projectDuration, syncTime, setIsPlaying],
+  )
+
   const activePlaybackRate = activeClip.playbackRate ?? 1
 
   const clipTime = Math.max(
@@ -683,16 +703,44 @@ export function EditorPage() {
 
   const applyClipsUpdate = useCallback(
     (nextClips: VideoClip[], duration: number) => {
+      const oldDuration = projectDuration
+      const durationChanged = Math.abs(duration - oldDuration) > 0.001
+      const nextOriginalAudioRange = durationChanged
+        ? scaleTimeRangeForProjectDuration(
+            snapshot.originalAudioRange,
+            oldDuration,
+            duration,
+          )
+        : snapshot.originalAudioRange
+
+      if (durationChanged) {
+        setDraftOriginalAudioRange((prev) =>
+          scaleTimeRangeForProjectDuration(prev, oldDuration, duration),
+        )
+      }
+
       setClips(nextClips)
       setProjectDuration(duration)
       updateEditorProject({ clips: nextClips, duration })
       pushEditorHistory(
-        { videoClips: nextClips, videoDuration: duration },
+        {
+          videoClips: nextClips,
+          videoDuration: duration,
+          ...(durationChanged
+            ? { originalAudioRange: nextOriginalAudioRange }
+            : {}),
+        },
         duration,
       )
       if (currentTime > duration) seek(duration)
     },
-    [currentTime, seek, pushEditorHistory],
+    [
+      currentTime,
+      seek,
+      pushEditorHistory,
+      projectDuration,
+      snapshot.originalAudioRange,
+    ],
   )
 
   const handleImportClick = useCallback(() => {
@@ -861,10 +909,14 @@ export function EditorPage() {
   const handleClipPlaybackRateChange = useCallback(
     (rate: number) => {
       if (!selectedVideoClipId) return
-      const next = setClipPlaybackRate(clips, selectedVideoClipId, rate)
-      applyClipsUpdate(next, projectDuration)
+      const { clips: nextClips, duration } = setClipPlaybackRate(
+        clips,
+        selectedVideoClipId,
+        rate,
+      )
+      applyClipsUpdate(nextClips, duration)
     },
-    [selectedVideoClipId, clips, projectDuration, applyClipsUpdate],
+    [selectedVideoClipId, clips, applyClipsUpdate],
   )
 
   const handleSeekRatio = useCallback(
@@ -2320,7 +2372,10 @@ export function EditorPage() {
         videoSrc={activeClip.videoSrc}
         clipTransform={previewClipTransform}
         clipTime={clipTime}
+        clipTimelineStart={activeClip.start}
+        clipSourceOffset={activeClip.sourceOffset ?? 0}
         playbackRate={activePlaybackRate}
+        onTimelineSync={handlePreviewTimelineSync}
         isCropMode={isCropMode}
         cropDraft={draftCrop}
         onCropChange={setDraftCrop}
