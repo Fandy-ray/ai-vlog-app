@@ -21,8 +21,9 @@ interface AIFeatureBarProps {
 
 export function AIFeatureBar({ activeId, onSelect }: AIFeatureBarProps) {
   return (
-    <section className="shrink-0 px-4 py-3">
-      <div className="flex items-start justify-between gap-1">
+    <section className="shrink-0 px-3 py-2" aria-label="AI 功能">
+      <div className="rounded-2xl bg-surface px-3 py-3 shadow-[0_2px_10px_rgba(44,62,80,0.05)] ring-1 ring-border/35">
+        <div className="flex items-start justify-between gap-1">
         {FEATURES.map(({ id, label, icon: Icon, color }) => {
           const active = activeId === id
           return (
@@ -33,8 +34,8 @@ export function AIFeatureBar({ activeId, onSelect }: AIFeatureBarProps) {
               className="flex min-w-0 flex-1 flex-col items-center gap-1.5 transition-transform active:scale-95"
             >
               <span
-                className={`flex h-11 w-11 items-center justify-center rounded-2xl shadow-[var(--shadow-card)] transition-all ${color} ${
-                  active ? 'ring-2 ring-primary ring-offset-2' : ''
+                className={`flex h-11 w-11 items-center justify-center rounded-[var(--radius-xl)] shadow-[var(--shadow-card)] transition-all ${color} ${
+                  active ? 'ring-2 ring-primary ring-offset-2 ring-offset-surface' : ''
                 }`}
               >
                 <Icon size={20} strokeWidth={1.75} />
@@ -49,6 +50,7 @@ export function AIFeatureBar({ activeId, onSelect }: AIFeatureBarProps) {
             </button>
           )
         })}
+        </div>
       </div>
     </section>
   )

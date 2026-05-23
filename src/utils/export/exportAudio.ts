@@ -3,6 +3,10 @@ import { getNetworkAudio } from '@/data/audioLibrary'
 import type { EditorSnapshot } from '@/types/editorState'
 import { fetchBgmBuffer } from '@/utils/bgmLoader'
 import { getNarrationAudioBlob } from '@/state/narrationAudio'
+import {
+  normalizeTimeRange,
+  type TimeRange,
+} from '@/utils/timeRange'
 import type { FFmpeg } from '@ffmpeg/ffmpeg'
 import { fetchFile } from '@ffmpeg/util'
 import { audioBufferToWav } from './audioWav'
@@ -15,18 +19,38 @@ function extFromBlob(blob: Blob) {
   return 'mp4'
 }
 
-function copyBufferToOffline(
+/** 从解码缓冲截取一段，用于时间轴存在范围内的原声片段 */
+function copyBufferSlice(
   offline: OfflineAudioContext,
   decoded: AudioBuffer,
-  maxSamples: number,
+  startSample: number,
+  sampleCount: number,
 ) {
-  const len = Math.min(decoded.length, maxSamples)
+  const available = Math.max(0, decoded.length - startSample)
+  const len = Math.min(sampleCount, available)
+  if (len <= 0) return null
   const buf = offline.createBuffer(2, len, SAMPLE_RATE)
   for (let ch = 0; ch < 2; ch++) {
     const srcCh = decoded.getChannelData(Math.min(ch, decoded.numberOfChannels - 1))
-    buf.copyToChannel(srcCh.subarray(0, len), ch, 0)
+    buf.copyToChannel(srcCh.subarray(startSample, startSample + len), ch, 0)
   }
   return buf
+}
+
+/** 片段 [segStart, segEnd] 与存在范围的交集（项目时间轴秒） */
+function intersectTimelineRange(
+  segStart: number,
+  segEnd: number,
+  range: TimeRange,
+): { when: number; offsetSec: number; durationSec: number } | null {
+  const activeStart = Math.max(segStart, range.startTime)
+  const activeEnd = Math.min(segEnd, range.endTime)
+  if (activeEnd <= activeStart) return null
+  return {
+    when: activeStart,
+    offsetSec: activeStart - segStart,
+    durationSec: activeEnd - activeStart,
+  }
 }
 
 async function decodeWavBytes(wav: Uint8Array): Promise<AudioBuffer> {
@@ -81,27 +105,38 @@ async function renderFullAudio(
   const offline = new OfflineAudioContext(2, length, SAMPLE_RATE)
   let hasTrack = false
   let timelineOffset = 0
+  const originalRange = normalizeTimeRange(
+    snapshot.originalAudioRange,
+    duration,
+  ).range
+  const bgmRange = normalizeTimeRange(snapshot.bgmRange, duration).range
 
   if (snapshot.keepOriginalAudio) {
     for (let i = 0; i < clips.length; i++) {
       const clip = clips[i]
+      const segStart = timelineOffset
+      const segEnd = timelineOffset + clip.duration
+      const segment = intersectTimelineRange(segStart, segEnd, originalRange)
+      timelineOffset = segEnd
+
+      if (!segment) continue
+
       const decoded = await extractClipAudio(ffmpeg, workId, clip, i)
-      if (decoded) {
-        const clipBuf = copyBufferToOffline(
-          offline,
-          decoded,
-          Math.ceil(clip.duration * SAMPLE_RATE),
-        )
-        const src = offline.createBufferSource()
-        src.buffer = clipBuf
-        const gain = offline.createGain()
-        gain.gain.value = 1
-        src.connect(gain)
-        gain.connect(offline.destination)
-        src.start(timelineOffset)
-        timelineOffset += clip.duration
-        hasTrack = true
-      }
+      if (!decoded) continue
+
+      const startSample = Math.floor(segment.offsetSec * SAMPLE_RATE)
+      const sampleCount = Math.ceil(segment.durationSec * SAMPLE_RATE)
+      const clipBuf = copyBufferSlice(offline, decoded, startSample, sampleCount)
+      if (!clipBuf) continue
+
+      const src = offline.createBufferSource()
+      src.buffer = clipBuf
+      const gain = offline.createGain()
+      gain.gain.value = 1
+      src.connect(gain)
+      gain.connect(offline.destination)
+      src.start(segment.when, 0, segment.durationSec)
+      hasTrack = true
     }
   }
 
@@ -128,7 +163,8 @@ async function renderFullAudio(
 
   if (snapshot.bgmId) {
     const bgm = getNetworkAudio(snapshot.bgmId)
-    if (bgm) {
+    const bgmSpan = bgmRange.endTime - bgmRange.startTime
+    if (bgm && bgmSpan > 0) {
       const ab = await fetchBgmBuffer(snapshot.bgmId)
       const ctx = new AudioContext()
       const decoded = await ctx.decodeAudioData(ab.slice(0))
@@ -141,7 +177,7 @@ async function renderFullAudio(
       gain.gain.value = snapshot.keepOriginalAudio ? 0.48 : 0.95
       src.connect(gain)
       gain.connect(offline.destination)
-      src.start(0, 0, duration)
+      src.start(bgmRange.startTime, 0, bgmSpan)
       hasTrack = true
     }
   }

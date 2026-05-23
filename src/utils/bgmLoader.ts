@@ -2,18 +2,32 @@ import { getNetworkAudio } from '@/data/audioLibrary'
 
 const bgmBufferCache = new Map<string, ArrayBuffer>()
 
-/** 本地静态配乐（public/bgm/{id}.mp3），导出与试听优先使用 */
+/** 本地静态配乐（public/bgm/{id}.mp3），与 audioLibrary 中 id 对应 */
 export function getLocalBgmUrl(bgmId: string): string {
   return `/bgm/${bgmId}.mp3`
 }
 
-/** 试听可依次尝试的地址 */
+function pushUnique(urls: string[], url: string | undefined) {
+  if (!url || urls.includes(url)) return
+  urls.push(url)
+}
+
+/**
+ * 试听 / 导出可依次尝试的地址。
+ * 优先使用 audioLibrary 登记的 previewUrl（如 /audio/*.mp3），再回退 /bgm/{id}.mp3 与远程地址。
+ */
 export function getBgmPlayUrls(bgmId: string): string[] {
   const audio = getNetworkAudio(bgmId)
-  const urls = [getLocalBgmUrl(bgmId)]
-  if (audio?.remoteUrl) {
-    urls.push(audio.remoteUrl)
+  const urls: string[] = []
+
+  if (audio) {
+    pushUnique(urls, audio.previewUrl)
+    pushUnique(urls, getLocalBgmUrl(bgmId))
+    pushUnique(urls, audio.remoteUrl)
+  } else {
+    pushUnique(urls, getLocalBgmUrl(bgmId))
   }
+
   return urls
 }
 
@@ -50,8 +64,8 @@ export async function fetchBgmBuffer(bgmId: string): Promise<ArrayBuffer> {
 
   throw new Error(
     lastError instanceof Error
-      ? `配乐加载失败：${lastError.message}。请运行 npm run bgm:fetch 下载本地配乐`
-      : '配乐加载失败，请运行 npm run bgm:fetch 后重试',
+      ? `配乐加载失败：${lastError.message}。请确认 public/audio 或 public/bgm 中已有对应 MP3，或运行 npm run audio:fetch`
+      : '配乐加载失败，请运行 npm run audio:fetch 后重试',
   )
 }
 

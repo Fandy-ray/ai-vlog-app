@@ -7,7 +7,12 @@ import {
 } from 'react'
 import { DEFAULT_CROP } from '@/types/clipTransform'
 import type { ClipTransform } from '@/types/clipTransform'
-import { computeRotatedFitBox, type RotatedFitBox } from '@/utils/videoFit'
+import {
+  computeRotatedCoverBox,
+  computeRotatedFitBox,
+  isFullFrameCrop,
+  type RotatedFitBox,
+} from '@/utils/videoFit'
 
 interface ClipTransformLayerProps {
   transform?: ClipTransform
@@ -32,9 +37,10 @@ export function ClipTransformLayer({
     const el = containerRef.current
     if (!el) return
     const { width, height } = el.getBoundingClientRect()
-    setFitBox(
-      computeRotatedFitBox(width, height, sourceAspect, rotation, flipH, crop),
-    )
+    const compute = isFullFrameCrop(crop)
+      ? computeRotatedFitBox
+      : computeRotatedCoverBox
+    setFitBox(compute(width, height, sourceAspect, rotation, flipH, crop))
   }, [crop, flipH, rotation, sourceAspect])
 
   useLayoutEffect(() => {

@@ -23,7 +23,7 @@ interface BottomToolbarProps {
 
 export function BottomToolbar({ activeTool, onSelect }: BottomToolbarProps) {
   return (
-    <nav className="shrink-0 border-t border-border/80 bg-surface/95 px-2 py-2 backdrop-blur-md">
+    <nav className="relative z-20 shrink-0 border-t border-border/80 bg-surface/95 px-2 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom,0px))] backdrop-blur-md">
       <ul className="flex items-center justify-around">
         {TOOLS.map(({ id, label, icon: Icon }) => {
           const active = activeTool === id

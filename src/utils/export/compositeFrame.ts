@@ -8,7 +8,8 @@ import {
 import { drawStickerFallback, loadStickerImage } from './stickerImage'
 import type { VideoClip } from '@/data/mockProject'
 import { getClipAtTime } from '@/data/mockProject'
-import type { EditorSnapshot } from '@/types/editorState'
+import type { EditorSnapshot, TextOverlay } from '@/types/editorState'
+import { isActiveAtTime } from '@/utils/timeRange'
 import { drawClipMedia } from '@/utils/drawClipMedia'
 import { drawEffectOverlay } from './effectsCanvas'
 
@@ -70,7 +71,7 @@ function drawTextOverlay(
   ctx: CanvasRenderingContext2D,
   width: number,
   height: number,
-  overlay: NonNullable<EditorSnapshot['textOverlay']>,
+  overlay: TextOverlay,
 ) {
   const { width: boxWPct, height: boxHPct } = resolveTextDimensions(overlay)
   const boxW = (boxWPct / 100) * width
@@ -244,7 +245,11 @@ export async function compositeFrameAt(
   const height = options.height ?? EXPORT_HEIGHT
   const t = Math.max(0, Math.min(globalTime, totalDuration - 0.001))
   const clip = getClipAtTime(t, clips, totalDuration)
-  const localTime = Math.max(0, (clip.sourceOffset ?? 0) + t - clip.start)
+  const rate = clip.playbackRate ?? 1
+  const localTime = Math.max(
+    0,
+    (clip.sourceOffset ?? 0) + (t - clip.start) * rate,
+  )
   const filterCss = getFilterCss(snapshot.filterId)
   const intensity = snapshot.filterIntensity
 
@@ -280,8 +285,10 @@ export async function compositeFrameAt(
 
   drawEffectOverlay(ctx, width, height, snapshot.effectId ?? 'none', t, false)
 
-  if (snapshot.textOverlay?.content.trim()) {
-    drawTextOverlay(ctx, width, height, snapshot.textOverlay)
+  for (const text of snapshot.textOverlays) {
+    if (text.content.trim() && isActiveAtTime(t, text)) {
+      drawTextOverlay(ctx, width, height, text)
+    }
   }
 
   for (const sticker of snapshot.stickerOverlays) {

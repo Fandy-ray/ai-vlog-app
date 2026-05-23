@@ -15,8 +15,22 @@ const VOICE_BY_STYLE = {
   study: 'vivoHelper',
 }
 
+const ENGINE_VOICES = {
+  short_audio_synthesis_jovi: [
+    { id: 'vivoHelper', label: '奕雯' },
+    { id: 'wanqing', label: '婉清-御姐' },
+    { id: 'xiaofu', label: '晓芙-少女' },
+    { id: 'yige', label: '依格' },
+  ],
+  long_audio_synthesis_screen: [
+    { id: 'x2_vivoHelper', label: '奕雯' },
+    { id: 'x2_yige', label: '依格-甜美' },
+  ],
+  tts_humanoid_lam: [{ id: 'F245_natural', label: '知性柔美' }],
+}
+
 function getAppKey() {
-  return process.env.VIVO_AIGC_APP_KEY || ''
+  return process.env.VIVO_AIGC_APP_KEY || process.env.VIVO_APP_KEY || ''
 }
 
 function isConfigured() {
@@ -30,10 +44,11 @@ function pickVoice(style) {
 }
 
 /** vivo TTS 要求 URL 带齐机型参数，全 unknown 会握手 400 */
-function buildWsUrl() {
+function buildWsUrl(engineidOverride) {
   const userId = uuidv4().replace(/-/g, '').slice(0, 32)
   const params = new URLSearchParams({
-    engineid: process.env.VIVO_TTS_ENGINEID || 'short_audio_synthesis_jovi',
+    engineid:
+      engineidOverride || process.env.VIVO_TTS_ENGINEID || 'short_audio_synthesis_jovi',
     system_time: String(Math.floor(Date.now() / 1000)),
     user_id: userId,
     model: process.env.VIVO_TTS_MODEL || 'V1809A',
@@ -67,7 +82,7 @@ function synthesizePcm(text, options = {}) {
     return Promise.resolve({ ok: false, reason: 'empty_text' })
   }
 
-  const url = buildWsUrl()
+  const url = buildWsUrl(options.engineid)
   const vcn = options.vcn || pickVoice(options.style)
 
   return new Promise((resolve) => {
@@ -199,10 +214,67 @@ async function synthesizeToWav(text, wavPath, options = {}) {
   }
 }
 
+function encodePcmAsWav(pcm, sampleRate = 24000) {
+  const header = Buffer.alloc(44)
+  header.write('RIFF', 0)
+  header.writeUInt32LE(36 + pcm.length, 4)
+  header.write('WAVE', 8)
+  header.write('fmt ', 12)
+  header.writeUInt32LE(16, 16)
+  header.writeUInt16LE(1, 20)
+  header.writeUInt16LE(1, 22)
+  header.writeUInt32LE(sampleRate, 24)
+  header.writeUInt32LE(sampleRate * 2, 28)
+  header.writeUInt16LE(2, 32)
+  header.writeUInt16LE(16, 34)
+  header.write('data', 36)
+  header.writeUInt32LE(pcm.length, 40)
+  return Buffer.concat([header, pcm])
+}
+
+async function synthesizeSpeech(options = {}) {
+  const text = String(options.text || '').trim()
+  if (!text) throw new Error('旁白文本不能为空')
+  if (!isConfigured()) throw new Error('未配置 VIVO_AIGC_APP_KEY')
+
+  const result = await synthesizePcm(text, {
+    vcn: options.vcn,
+    speed: options.speed,
+    volume: options.volume,
+    engineid: options.engineid,
+  })
+  if (!result.ok || !result.pcm?.length) {
+    throw new Error(result.message || result.reason || 'TTS 合成失败')
+  }
+
+  const sampleRate = 24000
+  return {
+    wav: encodePcmAsWav(result.pcm, sampleRate),
+    durationSec: result.pcm.length / (sampleRate * 2),
+    mimeType: 'audio/wav',
+    sampleRate,
+  }
+}
+
+function listVoices(engineid = 'short_audio_synthesis_jovi') {
+  return ENGINE_VOICES[engineid] || ENGINE_VOICES.short_audio_synthesis_jovi
+}
+
+function listEngines() {
+  return [
+    { id: 'short_audio_synthesis_jovi', label: '短文本（对话）', maxBytes: 2048 },
+    { id: 'long_audio_synthesis_screen', label: '长文本（朗读）', maxBytes: null },
+    { id: 'tts_humanoid_lam', label: '超拟人', maxBytes: null },
+  ]
+}
+
 module.exports = {
   isConfigured,
   synthesizePcm,
   synthesizeToWav,
+  synthesizeSpeech,
+  listVoices,
+  listEngines,
   pickVoice,
   VOICE_BY_STYLE,
 }

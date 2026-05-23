@@ -31,7 +31,12 @@ export function createStickerId(): string {
   return `sticker-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
 }
 
-export function createDefaultStickerOverlay(stickerId: string, index = 0) {
+export function createDefaultStickerOverlay(
+  stickerId: string,
+  index = 0,
+  videoDuration = 96,
+  startTime = 0,
+) {
   const offset = index % 5
   return {
     id: createStickerId(),
@@ -41,5 +46,7 @@ export function createDefaultStickerOverlay(stickerId: string, index = 0) {
     width: 18,
     height: 18,
     rotation: 0,
+    startTime: Math.floor(startTime),
+    endTime: Math.floor(videoDuration),
   }
 }

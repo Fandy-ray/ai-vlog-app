@@ -11,6 +11,7 @@ const exportRouter = require('./routes/export')
 const narrationRouter = require('./routes/narration')
 const vlogRouter = require('./routes/vlog')
 const directorRouter = require('./routes/director')
+const musicRouter = require('./routes/music')
 
 const app = express()
 
@@ -28,6 +29,7 @@ app.use('/api', exportRouter)
 app.use('/api', narrationRouter)
 app.use('/api', vlogRouter)
 app.use('/api', directorRouter)
+app.use('/api', musicRouter)
 
 app.get('/', (req, res) => {
   res.json({

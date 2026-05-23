@@ -1,29 +1,28 @@
-/** 视频上的文字图层 */
+import type { VideoClip } from '@/data/mockProject'
+import type { TimeRange } from '@/utils/timeRange'
+import { createDefaultTimeRange } from '@/utils/timeRange'
+import { PROJECT_DURATION } from '@/data/mockProject'
+
+export type { TimeRange }
+
 export interface TextOverlay {
+  id: string
   content: string
   color: string
   fontId: string
-  /** 相对视频宽度，百分比 0–100 */
   x: number
-  /** 相对视频高度，百分比 0–100 */
   y: number
-  /** 文字框宽度（占视频宽度百分比） */
   width: number
-  /** 文字框高度（占视频高度百分比） */
   height: number
-  /** 旋转角度（度） */
   rotation: number
-  /** 文字框背景色（十六进制） */
   backgroundColor?: string
-  /** 文字框背景不透明度 0–100，0 为完全透明 */
   backgroundOpacity?: number
-  /** @deprecated 旧版统一缩放，会自动转换为 width/height */
   scale?: number
+  startTime: number
+  endTime: number
 }
 
-/** 视频上的贴纸图层 */
 export interface StickerOverlay {
-  /** 实例唯一 id（同一预设可添加多次） */
   id: string
   stickerId: string
   x: number
@@ -31,20 +30,23 @@ export interface StickerOverlay {
   width: number
   height: number
   rotation: number
+  startTime: number
+  endTime: number
 }
 
-/** 可撤回/重做的剪辑状态快照 */
 export interface EditorSnapshot {
   title: string
   filterId: string
   filterIntensity: number
   effectId: string
-  textOverlay: TextOverlay | null
+  textOverlays: TextOverlay[]
   stickerOverlays: StickerOverlay[]
-  /** 是否保留视频原声 */
+  /** 叠加轨显示顺序（clip id，不含原声轨；按添加先后） */
+  overlayTrackOrder?: string[]
   keepOriginalAudio: boolean
-  /** 所选网络配乐 id，null 表示无配乐 */
+  originalAudioRange: TimeRange
   bgmId: string | null
+  bgmRange: TimeRange
   /** AI 旁白文稿 */
   narrationText: string | null
   /** vivo TTS 发音人 vcn */
@@ -53,17 +55,25 @@ export interface EditorSnapshot {
   narrationEngineId: string
   /** 是否将旁白混入导出 */
   narrationEnabled: boolean
+  /** 视频轨片段（与时间轴剪辑工具栏撤销联动） */
+  videoClips?: VideoClip[]
+  videoDuration?: number
 }
+
+const defaultRange = createDefaultTimeRange(PROJECT_DURATION)
 
 export const INITIAL_EDITOR_SNAPSHOT: EditorSnapshot = {
   title: '旅行的意义',
   filterId: 'none',
   filterIntensity: 100,
   effectId: 'none',
-  textOverlay: null,
+  textOverlays: [],
   stickerOverlays: [],
+  overlayTrackOrder: [],
   keepOriginalAudio: true,
-  bgmId: 'sunny-day',
+  originalAudioRange: { ...defaultRange },
+  bgmId: null,
+  bgmRange: { ...defaultRange },
   narrationText: null,
   narrationVoice: 'yige',
   narrationEngineId: 'short_audio_synthesis_jovi',

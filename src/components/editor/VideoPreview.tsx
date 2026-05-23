@@ -1,4 +1,4 @@
-import { Maximize2, Pause, Play } from 'lucide-react'
+import { Maximize2, Minimize2, Pause, Play, X } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ClipTransformLayer } from '@/components/editor/ClipTransformLayer'
 import { VideoCropOverlay } from '@/components/editor/VideoCropOverlay'
@@ -9,10 +9,17 @@ import type { ClipTransform } from '@/types/clipTransform'
 import { VideoStickerOverlay } from '@/components/editor/VideoStickerOverlay'
 import { VideoTextOverlay } from '@/components/editor/VideoTextOverlay'
 import type { StickerOverlay, TextOverlay } from '@/types/editorState'
-import { formatTime } from '@/utils/formatTime'
+import { EDITOR_PREVIEW_ATTR } from '@/utils/editorSelectionHitTest'
+import { clamp, formatTime } from '@/utils/formatTime'
+import { isActiveAtTime } from '@/utils/timeRange'
 
 export interface StickerPreviewItem {
   overlay: StickerOverlay
+  editable: boolean
+}
+
+export interface TextPreviewItem {
+  overlay: TextOverlay
   editable: boolean
 }
 
@@ -22,22 +29,34 @@ interface VideoPreviewProps {
   clipTransform?: ClipTransform
   /** 当前片段内的播放时间 */
   clipTime?: number
+  /** 当前片段在时间轴上的起点（秒） */
+  clipTimelineStart?: number
+  /** 源视频起始偏移（秒） */
+  clipSourceOffset?: number
+  /** 当前片段播放倍速 */
+  playbackRate?: number
+  /** 播放中由视频时钟回写时间轴 */
+  onTimelineSync?: (timelineTime: number) => void
   currentTime: number
   duration: number
   isPlaying: boolean
   filterCss?: string
   filterIntensity?: number
   effectId?: string
-  textOverlay?: TextOverlay | null
-  textEditable?: boolean
-  onTextChange?: (patch: Partial<TextOverlay>) => void
-  /** 非编辑态下点击已有文字，重新进入文字编辑 */
-  onTextActivate?: () => void
+  textItems?: TextPreviewItem[]
+  onTextChange?: (id: string, patch: Partial<TextOverlay>) => void
+  onTextTransformEnd?: () => void
+  onTextActivate?: (id: string) => void
+  onTextContextMenu?: (e: React.MouseEvent, id: string) => void
   stickerItems?: StickerPreviewItem[]
   onStickerChange?: (id: string, patch: Partial<StickerOverlay>) => void
   onStickerTransformEnd?: () => void
   onStickerActivate?: (id: string) => void
+  onStickerContextMenu?: (e: React.MouseEvent, id: string) => void
   onPreviewBackgroundClick?: () => void
+  onPreviewContextMenu?: (e: React.MouseEvent) => void
+  selectedTextId?: string | null
+  selectedStickerId?: string | null
   onTogglePlay: () => void
   onSeek: (ratio: number) => void
   isCropMode?: boolean
@@ -45,6 +64,10 @@ interface VideoPreviewProps {
   onCropChange?: (crop: NormalizedCrop) => void
   onCropConfirm?: () => void
   onCropCancel?: () => void
+  onSourceAspectChange?: (aspect: number) => void
+  /** 为 false 时播放视频原声（需用户点击播放，满足浏览器策略） */
+  previewMuted?: boolean
+  previewVolume?: number
 }
 
 export function VideoPreview({
@@ -52,21 +75,30 @@ export function VideoPreview({
   videoSrc,
   clipTransform,
   clipTime = 0,
+  clipTimelineStart = 0,
+  clipSourceOffset = 0,
+  playbackRate = 1,
+  onTimelineSync,
   currentTime,
   duration,
   isPlaying,
   filterCss = 'none',
   filterIntensity = 100,
   effectId = 'none',
-  textOverlay,
-  textEditable,
+  textItems = [],
   onTextChange,
+  onTextTransformEnd,
   onTextActivate,
+  onTextContextMenu,
   stickerItems = [],
   onStickerChange,
   onStickerTransformEnd,
   onStickerActivate,
+  onStickerContextMenu,
   onPreviewBackgroundClick,
+  onPreviewContextMenu,
+  selectedTextId = null,
+  selectedStickerId = null,
   onTogglePlay,
   onSeek,
   isCropMode = false,
@@ -74,26 +106,105 @@ export function VideoPreview({
   onCropChange,
   onCropConfirm,
   onCropCancel,
+  onSourceAspectChange,
+  previewMuted = false,
+  previewVolume = 1,
 }: VideoPreviewProps) {
   const videoRef = useRef<HTMLVideoElement>(null)
+  const lastVideoSrcRef = useRef<string | undefined>(undefined)
+  const progressRef = useRef<HTMLDivElement>(null)
+  const previewContainerRef = useRef<HTMLDivElement>(null)
   const [sourceAspect, setSourceAspect] = useState(16 / 9)
-  const progress = duration > 0 ? currentTime / duration : 0
+  const [scrubbing, setScrubbing] = useState(false)
+  const [overlayExpanded, setOverlayExpanded] = useState(false)
+  const [nativeFullscreen, setNativeFullscreen] = useState(false)
+  const isExpanded = overlayExpanded || nativeFullscreen
+  const progress = duration > 0 ? clamp(currentTime / duration, 0, 1) : 0
+
+  const exitExpanded = useCallback(async () => {
+    if (document.fullscreenElement) {
+      try {
+        await document.exitFullscreen()
+      } catch {
+        /* ignore */
+      }
+    }
+    setOverlayExpanded(false)
+  }, [])
+
+  const enterExpanded = useCallback(async () => {
+    const el = previewContainerRef.current
+    if (!el) return
+    if (el.requestFullscreen) {
+      try {
+        await el.requestFullscreen()
+        return
+      } catch {
+        /* fallback to overlay */
+      }
+    }
+    setOverlayExpanded(true)
+  }, [])
+
+  const toggleExpanded = useCallback(() => {
+    if (isExpanded) void exitExpanded()
+    else void enterExpanded()
+  }, [enterExpanded, exitExpanded, isExpanded])
+
+  useEffect(() => {
+    const onFullscreenChange = () => {
+      setNativeFullscreen(document.fullscreenElement === previewContainerRef.current)
+      if (!document.fullscreenElement) setOverlayExpanded(false)
+    }
+    document.addEventListener('fullscreenchange', onFullscreenChange)
+    return () => document.removeEventListener('fullscreenchange', onFullscreenChange)
+  }, [])
+
+  useEffect(() => {
+    if (!overlayExpanded) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') void exitExpanded()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [overlayExpanded, exitExpanded])
+
+  useEffect(() => {
+    if (!overlayExpanded) return
+    const prev = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => {
+      document.body.style.overflow = prev
+    }
+  }, [overlayExpanded])
+
+  const seekRatioFromClientX = useCallback((clientX: number) => {
+    const el = progressRef.current
+    if (!el) return 0
+    const { left, width } = el.getBoundingClientRect()
+    if (width <= 0) return 0
+    return clamp((clientX - left) / width, 0, 1)
+  }, [])
 
   const syncSourceAspect = useCallback(() => {
     const video = videoRef.current
     if (video?.videoWidth && video.videoHeight) {
-      setSourceAspect(video.videoWidth / video.videoHeight)
+      const aspect = video.videoWidth / video.videoHeight
+      setSourceAspect(aspect)
+      onSourceAspectChange?.(aspect)
       return
     }
     if (!poster) return
     const img = new Image()
     img.onload = () => {
       if (img.naturalWidth && img.naturalHeight) {
-        setSourceAspect(img.naturalWidth / img.naturalHeight)
+        const aspect = img.naturalWidth / img.naturalHeight
+        setSourceAspect(aspect)
+        onSourceAspectChange?.(aspect)
       }
     }
     img.src = poster
-  }, [poster])
+  }, [poster, onSourceAspectChange])
 
   useEffect(() => {
     const video = videoRef.current
@@ -103,12 +214,64 @@ export function VideoPreview({
     video.addEventListener('loadedmetadata', onMeta)
     onMeta()
 
-    if (Math.abs(video.currentTime - clipTime) > 0.25) {
-      video.currentTime = clipTime
+    return () => video.removeEventListener('loadedmetadata', onMeta)
+  }, [syncSourceAspect, videoSrc])
+
+  useEffect(() => {
+    const video = videoRef.current
+    if (!video || !videoSrc) return
+    const target = clipTime
+    if (!Number.isFinite(target)) return
+
+    const sourceChanged = lastVideoSrcRef.current !== videoSrc
+    lastVideoSrcRef.current = videoSrc
+    const drift = Math.abs(video.currentTime - target)
+    const threshold = isPlaying ? 0.45 : 0.06
+
+    if (sourceChanged || drift > threshold) {
+      video.currentTime = target
+    }
+  }, [clipTime, videoSrc, isPlaying])
+
+  useEffect(() => {
+    if (!isPlaying || !videoSrc || !onTimelineSync) return
+    const video = videoRef.current
+    if (!video) return
+
+    const rate = Math.max(0.1, Math.min(16, playbackRate))
+    const offset = clipSourceOffset
+    const start = clipTimelineStart
+
+    let rafId = 0
+    const tick = () => {
+      const timelineTime = start + (video.currentTime - offset) / rate
+      if (Number.isFinite(timelineTime)) {
+        onTimelineSync(timelineTime)
+      }
+      rafId = requestAnimationFrame(tick)
     }
 
-    return () => video.removeEventListener('loadedmetadata', onMeta)
-  }, [clipTime, syncSourceAspect, videoSrc])
+    rafId = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(rafId)
+  }, [
+    isPlaying,
+    videoSrc,
+    playbackRate,
+    clipTimelineStart,
+    clipSourceOffset,
+    onTimelineSync,
+  ])
+
+  useEffect(() => {
+    const video = videoRef.current
+    if (!video || !videoSrc) return
+    const rate = Math.max(0.1, Math.min(16, playbackRate))
+    if (Math.abs(video.playbackRate - rate) > 0.001) {
+      video.playbackRate = rate
+    }
+    video.muted = previewMuted
+    video.volume = Math.max(0, Math.min(1, previewVolume))
+  }, [playbackRate, videoSrc, previewMuted, previewVolume])
 
   useEffect(() => {
     if (!videoSrc) syncSourceAspect()
@@ -119,28 +282,86 @@ export function VideoPreview({
     if (!video || !videoSrc) return
 
     if (isPlaying) {
+      video.muted = previewMuted
+      video.volume = Math.max(0, Math.min(1, previewVolume))
       void video.play().catch(() => {
         video.pause()
       })
     } else {
       video.pause()
     }
-  }, [isPlaying, videoSrc])
+  }, [isPlaying, videoSrc, previewMuted, previewVolume])
 
-  const handleProgressClick = (e: React.MouseEvent<HTMLDivElement>) => {
-    const rect = e.currentTarget.getBoundingClientRect()
-    const ratio = (e.clientX - rect.left) / rect.width
-    onSeek(ratio)
+  const visibleTexts = textItems.filter(
+    ({ overlay }) =>
+      overlay.content.trim() && isActiveAtTime(currentTime, overlay),
+  )
+  const visibleStickers = stickerItems.filter(({ overlay }) =>
+    isActiveAtTime(currentTime, overlay),
+  )
+
+  const handleProgressPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    e.preventDefault()
+    e.stopPropagation()
+    const bar = e.currentTarget
+    bar.setPointerCapture(e.pointerId)
+    setScrubbing(true)
+    onSeek(seekRatioFromClientX(e.clientX))
+
+    const onMove = (ev: PointerEvent) => {
+      onSeek(seekRatioFromClientX(ev.clientX))
+    }
+    const onUp = () => {
+      setScrubbing(false)
+      bar.releasePointerCapture(e.pointerId)
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+    }
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
   }
 
   return (
     <section className="shrink-0 px-4">
-      <div className="relative overflow-hidden rounded-[var(--radius-xl)] bg-black shadow-[var(--shadow-card)]">
+      <div
+        ref={previewContainerRef}
+        className={
+          overlayExpanded
+            ? 'fixed inset-0 z-[100] flex flex-col overflow-hidden bg-black'
+            : isExpanded
+              ? 'relative flex h-full w-full flex-col overflow-hidden bg-black'
+              : 'relative overflow-hidden rounded-[var(--radius-xl)] bg-black shadow-[var(--shadow-card)]'
+        }
+      >
+        {isExpanded && (
+          <button
+            type="button"
+            onClick={() => void exitExpanded()}
+            className="absolute right-3 top-3 z-50 flex h-9 w-9 items-center justify-center rounded-full bg-black/50 text-white backdrop-blur-md transition-colors hover:bg-black/70"
+            aria-label="退出放大预览"
+          >
+            <X size={18} />
+          </button>
+        )}
+
         <div
-          className="relative aspect-video w-full"
+          {...{ [EDITOR_PREVIEW_ATTR]: '' }}
+          className={
+            isExpanded
+              ? 'relative mx-auto flex min-h-0 w-full max-w-full flex-1 items-center justify-center self-stretch'
+              : 'relative aspect-video w-full'
+          }
           onClick={() => onPreviewBackgroundClick?.()}
+          onContextMenu={onPreviewContextMenu}
           role="presentation"
         >
+          <div
+            className={
+              isExpanded
+                ? 'relative aspect-video max-h-full w-full max-w-full'
+                : 'relative h-full w-full'
+            }
+          >
           <ClipTransformLayer transform={clipTransform} sourceAspect={sourceAspect}>
             <FilteredMedia
               key={videoSrc || poster}
@@ -148,6 +369,7 @@ export function VideoPreview({
               alt="视频预览"
               videoSrc={videoSrc}
               videoRef={videoRef}
+              muted={previewMuted}
               filterCss={filterCss}
               intensity={filterIntensity}
               objectFit="contain"
@@ -168,20 +390,35 @@ export function VideoPreview({
 
           {!isCropMode && <EffectOverlay effectId={effectId} />}
 
-          {textOverlay && (
+          {visibleTexts.map(({ overlay, editable }) => (
             <VideoTextOverlay
-              overlay={textOverlay}
-              editable={textEditable}
-              onChange={onTextChange}
-              onActivate={onTextActivate}
+              key={overlay.id}
+              overlay={overlay}
+              editable={editable}
+              selected={editable || selectedTextId === overlay.id}
+              onChange={
+                editable && onTextChange
+                  ? (patch) => onTextChange(overlay.id, patch)
+                  : undefined
+              }
+              onTransformEnd={editable ? onTextTransformEnd : undefined}
+              onActivate={
+                onTextActivate ? () => onTextActivate(overlay.id) : undefined
+              }
+              onContextMenu={
+                onTextContextMenu
+                  ? (e) => onTextContextMenu(e, overlay.id)
+                  : undefined
+              }
             />
-          )}
+          ))}
 
-          {stickerItems.map(({ overlay, editable }) => (
+          {visibleStickers.map(({ overlay, editable }) => (
             <VideoStickerOverlay
               key={overlay.id}
               overlay={overlay}
               editable={editable}
+              selected={editable || selectedStickerId === overlay.id}
               onChange={
                 editable && onStickerChange
                   ? (patch) => onStickerChange(overlay.id, patch)
@@ -191,14 +428,22 @@ export function VideoPreview({
               onActivate={
                 onStickerActivate ? () => onStickerActivate(overlay.id) : undefined
               }
+              onContextMenu={
+                onStickerContextMenu
+                  ? (e) => onStickerContextMenu(e, overlay.id)
+                  : undefined
+              }
             />
           ))}
+
+          </div>
 
           <span className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-transparent" aria-hidden />
 
           <div
             className="absolute inset-x-0 bottom-0 px-3 pb-3 pt-8"
             onClick={(e) => e.stopPropagation()}
+            onPointerDown={(e) => e.stopPropagation()}
           >
             <div className="flex items-center gap-3">
               <button
@@ -215,19 +460,30 @@ export function VideoPreview({
               </button>
 
               <div
+                ref={progressRef}
                 role="slider"
-                aria-valuenow={Math.round(progress * 100)}
-                className="group relative h-1 flex-1 cursor-pointer rounded-full bg-white/30"
-                onClick={handleProgressClick}
+                aria-label="播放进度"
+                aria-valuemin={0}
+                aria-valuemax={duration}
+                aria-valuenow={Math.round(currentTime)}
+                aria-valuetext={`${formatTime(currentTime)} / ${formatTime(duration)}`}
+                className="group relative flex h-4 flex-1 cursor-pointer touch-none items-center"
+                onPointerDown={handleProgressPointerDown}
               >
-                <div
-                  className="absolute inset-y-0 left-0 rounded-full bg-white transition-[width] duration-75"
-                  style={{ width: `${progress * 100}%` }}
-                />
-                <div
-                  className="absolute top-1/2 h-3 w-3 -translate-y-1/2 rounded-full bg-white opacity-0 shadow transition-opacity group-hover:opacity-100"
-                  style={{ left: `calc(${progress * 100}% - 6px)` }}
-                />
+                <div className="relative h-1 w-full rounded-full bg-white/30">
+                  <div
+                    className={`absolute inset-y-0 left-0 rounded-full bg-white ${
+                      scrubbing ? '' : 'transition-[width] duration-75'
+                    }`}
+                    style={{ width: `${progress * 100}%` }}
+                  />
+                  <div
+                    className={`absolute top-1/2 h-3 w-3 -translate-y-1/2 rounded-full bg-white shadow ${
+                      scrubbing ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+                    }`}
+                    style={{ left: `calc(${progress * 100}% - 6px)` }}
+                  />
+                </div>
               </div>
 
               <span className="shrink-0 text-xs font-medium tabular-nums text-white/90">
@@ -236,10 +492,12 @@ export function VideoPreview({
 
               <button
                 type="button"
+                onClick={() => void toggleExpanded()}
                 className="shrink-0 text-white/80 transition-colors hover:text-white"
-                aria-label="全屏"
+                aria-label={isExpanded ? '退出放大预览' : '放大预览'}
+                aria-pressed={isExpanded}
               >
-                <Maximize2 size={16} />
+                {isExpanded ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
               </button>
             </div>
           </div>

@@ -2,15 +2,18 @@ import { useCallback, useRef } from 'react'
 import { RotateCw } from 'lucide-react'
 import { getStickerEmoji } from '@/data/stickers'
 import type { StickerOverlay } from '@/types/editorState'
+import { PREVIEW_STICKER_OVERLAY_ATTR } from '@/utils/editorSelectionHitTest'
 
 interface VideoStickerOverlayProps {
   overlay: StickerOverlay
   editable?: boolean
+  selected?: boolean
   onChange?: (patch: Partial<StickerOverlay>) => void
   /** 手势结束（用于提交到历史记录） */
   onTransformEnd?: () => void
   /** 非编辑态点击贴纸时选中，以便缩放旋转 */
   onActivate?: () => void
+  onContextMenu?: (e: React.MouseEvent) => void
 }
 
 type ResizeEdge = 'top' | 'bottom' | 'left' | 'right'
@@ -33,9 +36,11 @@ function getCenter(el: HTMLElement) {
 export function VideoStickerOverlay({
   overlay,
   editable,
+  selected,
   onChange,
   onTransformEnd,
   onActivate,
+  onContextMenu,
 }: VideoStickerOverlayProps) {
   const canEdit = Boolean(editable && onChange)
   const boxRef = useRef<HTMLSpanElement>(null)
@@ -264,11 +269,16 @@ export function VideoStickerOverlay({
       />
     ) : null
 
+  const showSelectedRing = Boolean(selected && !canEdit)
+
   return (
     <span
+      {...{ [PREVIEW_STICKER_OVERLAY_ATTR]: '' }}
       ref={boxRef}
+      onContextMenu={onContextMenu}
+      onClick={(e) => e.stopPropagation()}
       className={`absolute z-[11] select-none ${
-        canEdit ? '' : onActivate ? 'cursor-pointer' : 'pointer-events-none'
+        canEdit || onContextMenu ? '' : onActivate ? 'cursor-pointer' : 'pointer-events-none'
       }`}
       style={{
         left: `${overlay.x}%`,
@@ -320,7 +330,13 @@ export function VideoStickerOverlay({
         onPointerDown={canEdit ? handleMoveStart : undefined}
         onClick={canEdit ? undefined : handleActivateClick}
         className={`flex h-full w-full items-center justify-center ${
-          canEdit ? 'cursor-move border-2 border-dashed border-white/80' : ''
+          canEdit
+            ? 'cursor-move border-2 border-dashed border-white/80'
+            : showSelectedRing
+              ? 'cursor-pointer ring-2 ring-accent ring-offset-1 ring-offset-black/30'
+              : onActivate || onContextMenu
+                ? 'cursor-pointer'
+                : ''
         }`}
       >
         <span

@@ -1,252 +1,645 @@
-import { Plus, Star, VolumeX } from 'lucide-react'
-import { useCallback, useRef } from 'react'
-import { formatBgmLabel } from '@/data/audioLibrary'
-import {
-  HIGHLIGHT_AT,
-  PREVIEW_POSTER,
-  VIDEO_CLIPS,
-  type VideoClip,
-} from '@/data/mockProject'
-import { formatTime } from '@/utils/formatTime'
-import { generateWaveform } from '@/utils/waveform'
-import { TimelineToolbar, type TimelineToolId } from './TimelineToolbar'
-import { Waveform } from './Waveform'
+import { Plus, Star } from 'lucide-react'
 
-const AUDIO_WAVE = generateWaveform(120, 2)
-const MUSIC_WAVE = generateWaveform(120, 5)
+import { useMemo, useRef } from 'react'
+
+import {
+
+  HIGHLIGHT_AT,
+
+  PREVIEW_POSTER,
+
+  VIDEO_CLIPS,
+
+  type VideoClip,
+
+} from '@/data/mockProject'
+
+import type { TimelineDisplayClip } from '@/types/timelineDisplay'
+
+import type { PlayheadSnapEdge } from '@/utils/playheadSnap'
+
+import type { TimelineClipDragMode } from '@/utils/timelineDisplay'
+
+import { EDITOR_TIMELINE_ATTR } from '@/utils/editorSelectionHitTest'
+
+import {
+
+  contentRangeStyle,
+
+  TIMELINE_ADD_CLIP_BUTTON_CLASS,
+
+  TIMELINE_INSET_PCT,
+
+  TIMELINE_MODULE_CLASS,
+
+  TIMELINE_PANEL_CLASS,
+
+  TIMELINE_RULER_ROW_CLASS,
+
+  TIMELINE_TOOLBAR_MODULE_CLASS,
+
+  TIMELINE_VIDEO_CLIP_ROW_CLASS,
+
+  TIMELINE_VIDEO_TRACK_SECTION_CLASS,
+
+  timeToContentPercent,
+
+} from '@/utils/timelineRuler'
+
+import { TimelineObjectTracks } from './TimelineObjectTracks'
+
+import { TimelinePlayhead } from './TimelinePlayhead'
+
+import { TimelineRuler } from './TimelineRuler'
+
+import {
+
+  TimelineToolbar,
+
+  type TimelineToolId,
+
+} from './TimelineToolbar'
+
+
 
 interface TimelineProps {
+
   clips?: VideoClip[]
+
   highlightAt?: number
+
   currentTime: number
+
   duration: number
-  keepOriginalAudio?: boolean
-  bgmId?: string | null
+
+  isPlaying?: boolean
+
+  /** 为 true 时（播放中或暂停在播放位置）：高亮跟指针；为 false 时仅跟手动选中 */
+  highlightFollowsPlayhead?: boolean
+
+  overlayClips?: TimelineDisplayClip[]
+
+  draggingClipId?: string | null
+
+  playheadSnapActive?: boolean
+
+  playheadSnapEdge?: PlayheadSnapEdge | null
+
   onSeek: (time: number) => void
+
+  onPlayheadSeekEnd?: () => void
+
   onClipSelect?: (clip: VideoClip) => void
-  onAudioClick?: () => void
+
+  selectedVideoClipId?: string | null
+
+  onEditTool?: (id: TimelineToolId) => void
+
+  canSplitClip?: boolean
+
+  canDeleteClip?: boolean
+
+  clipPlaybackRate?: number
+
+  onClipPlaybackRateChange?: (rate: number) => void
+
+  activeEditTool?: TimelineToolId | null
+
   onImportClick?: () => void
+
   importLoading?: boolean
-  onTool?: (tool: TimelineToolId) => void
-  canSplit?: boolean
-  canDelete?: boolean
-  activeTool?: TimelineToolId | null
+
+  onOverlayTracksWidthChange?: (widthPx: number) => void
+
+  onOverlayClipClick?: (clip: TimelineDisplayClip) => void
+
+  onOverlayClipDoubleClick?: (clip: TimelineDisplayClip) => void
+
+  onOverlayClipOpenMenu?: (clip: TimelineDisplayClip, x: number, y: number) => void
+
+  onOverlayClipDragStart?: (
+
+    clip: TimelineDisplayClip,
+
+    clientX: number,
+
+    mode: TimelineClipDragMode,
+
+  ) => void
+
+  onOverlayClipDragMove?: (
+
+    clip: TimelineDisplayClip,
+
+    clientX: number,
+
+    trackWidthPx: number,
+
+  ) => void
+
+  onOverlayClipDragEnd?: (
+
+    clip: TimelineDisplayClip,
+
+    clientX: number,
+
+    trackWidthPx: number,
+
+  ) => void
+
 }
+
+
 
 function isClipActive(clip: VideoClip, time: number) {
+
   return time >= clip.start && time < clip.start + clip.duration
+
 }
+
+/** 播放/暂停在播放位置：只高亮指针所在；未运行：只高亮手动选中 */
+function isClipHighlighted(
+  selected: boolean,
+  atPlayhead: boolean,
+  isPlaying: boolean,
+  highlightFollowsPlayhead: boolean,
+) {
+  if (isPlaying || highlightFollowsPlayhead) return atPlayhead
+  return selected
+}
+
+const CLIP_TRIM_HANDLE =
+  'pointer-events-none absolute inset-y-0 w-[12px] border-[3px] border-solid border-primary transition-[opacity,transform] duration-200 ease-out'
+
+function ClipTrimHighlight() {
+  return (
+    <>
+      <span
+        className="pointer-events-none absolute inset-0 rounded-[inherit] bg-primary/[0.06] transition-opacity duration-200 ease-out"
+        aria-hidden
+      />
+      <span
+        className="pointer-events-none absolute inset-0 rounded-[inherit] shadow-[inset_0_0_0_1px_rgba(94,124,224,0.65)] transition-shadow duration-200 ease-out"
+        aria-hidden
+      />
+      <span
+        className={`${CLIP_TRIM_HANDLE} left-0 rounded-l-[inherit] border-l-primary border-t-primary border-b-primary border-r-transparent`}
+        aria-hidden
+      />
+      <span
+        className={`${CLIP_TRIM_HANDLE} right-0 rounded-r-[inherit] border-r-primary border-t-primary border-b-primary border-l-transparent`}
+        aria-hidden
+      />
+    </>
+  )
+}
+
+function videoClipButtonClass(highlighted: boolean) {
+  return [
+    'group relative h-full w-full overflow-hidden rounded-md bg-track-video',
+    'transition-[opacity,filter,transform] duration-200 ease-out',
+    'active:scale-[0.98]',
+    highlighted ? 'opacity-100' : 'opacity-[0.58] hover:opacity-[0.78]',
+  ].join(' ')
+}
+
+
+
+function getHighlightCenterPercent(
+
+  duration: number,
+
+  clips: VideoClip[],
+
+  highlightAt: number,
+
+): number {
+
+  const clip =
+
+    clips.find((c) => highlightAt >= c.start && highlightAt < c.start + c.duration) ??
+
+    clips[0]
+
+  if (!clip || duration <= 0) return 0
+
+  return timeToContentPercent(clip.start + clip.duration / 2, duration)
+
+}
+
+
 
 export function Timeline({
+
   clips = VIDEO_CLIPS,
+
   highlightAt = HIGHLIGHT_AT,
+
   currentTime,
+
   duration,
-  keepOriginalAudio = true,
-  bgmId = 'sunny-day',
+
+  isPlaying = false,
+
+  highlightFollowsPlayhead = false,
+
+  overlayClips = [],
+
+  draggingClipId = null,
+
+  playheadSnapActive = false,
+
+  playheadSnapEdge = null,
+
   onSeek,
+
+  onPlayheadSeekEnd,
+
   onClipSelect,
-  onAudioClick,
+
+  selectedVideoClipId = null,
+
+  onEditTool,
+
+  canSplitClip = false,
+
+  canDeleteClip = false,
+
+  clipPlaybackRate = 1,
+
+  onClipPlaybackRateChange,
+
+  activeEditTool = null,
+
   onImportClick,
+
   importLoading = false,
-  onTool,
-  canSplit = true,
-  canDelete = true,
-  activeTool = null,
+
+  onOverlayTracksWidthChange,
+
+  onOverlayClipClick,
+
+  onOverlayClipDoubleClick,
+
+  onOverlayClipOpenMenu,
+
+  onOverlayClipDragStart,
+
+  onOverlayClipDragMove,
+
+  onOverlayClipDragEnd,
+
 }: TimelineProps) {
-  const bgmLabel = formatBgmLabel(bgmId ?? null)
-  const trackRef = useRef<HTMLDivElement>(null)
-  const playheadPct = (currentTime / duration) * 100
-  const highlightPct = (highlightAt / duration) * 100
-  const rulerMarks = [0.2, 0.35, 0.5].map((ratio) =>
-    Math.round(duration * ratio),
+
+  const timelineAreaRef = useRef<HTMLDivElement>(null)
+
+  const timeContentRef = useRef<HTMLDivElement>(null)
+
+  const highlightCenterPct = useMemo(
+
+    () => getHighlightCenterPercent(duration, clips, highlightAt),
+
+    [duration, clips, highlightAt],
+
   )
 
-  const seekFromEvent = useCallback(
-    (clientX: number) => {
-      const el = trackRef.current
-      if (!el) return
-      const rect = el.getBoundingClientRect()
-      const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width))
-      onSeek(ratio * duration)
-    },
-    [duration, onSeek],
-  )
+  const playheadLeftPct = timeToContentPercent(currentTime, duration)
 
-  const handlePointerDown = (e: React.PointerEvent) => {
-    const el = trackRef.current
-    if (!el) return
-    el.setPointerCapture(e.pointerId)
-    seekFromEvent(e.clientX)
+  const showAddColumn = Boolean(onImportClick)
 
-    const onMove = (ev: PointerEvent) => seekFromEvent(ev.clientX)
-    const onUp = () => {
-      el.releasePointerCapture(e.pointerId)
-      window.removeEventListener('pointermove', onMove)
-      window.removeEventListener('pointerup', onUp)
-    }
-    window.addEventListener('pointermove', onMove)
-    window.addEventListener('pointerup', onUp)
-  }
+
 
   return (
-    <section className="flex min-h-0 flex-1 flex-col overflow-hidden px-4 pb-2">
-      {onTool && (
-        <TimelineToolbar
-          onTool={onTool}
-          canSplit={canSplit}
-          canDelete={canDelete}
-          activeTool={activeTool}
-        />
+
+    <section
+
+      {...{ [EDITOR_TIMELINE_ATTR]: '' }}
+
+      className={TIMELINE_MODULE_CLASS}
+
+    >
+
+      {onEditTool && (
+        <div className={TIMELINE_TOOLBAR_MODULE_CLASS}>
+          <TimelineToolbar
+            onTool={onEditTool}
+            disabled={!selectedVideoClipId}
+            canSplit={canSplitClip}
+            canDelete={canDeleteClip}
+            playbackRate={clipPlaybackRate}
+            onPlaybackRateChange={onClipPlaybackRateChange}
+            activeTool={activeEditTool}
+          />
+        </div>
       )}
-      <article
-        ref={trackRef}
-        className="relative flex min-h-0 flex-1 cursor-pointer flex-col overflow-hidden rounded-[var(--radius-lg)] bg-surface shadow-[var(--shadow-card)]"
-        onPointerDown={handlePointerDown}
-      >
-        {/* 时间刻度 */}
-        <header className="relative flex h-6 shrink-0 items-end border-b border-border/60 px-2 pb-0.5">
-          {rulerMarks.map((sec) => (
-            <span
-              key={sec}
-              className="absolute bottom-0.5 -translate-x-1/2 text-[10px] tabular-nums text-text-muted"
-              style={{ left: `${(sec / duration) * 100}%` }}
-            >
-              {formatTime(sec)}
-            </span>
-          ))}
-        </header>
 
-        {/* 视频轨道 */}
-        <section className="relative shrink-0 px-1 py-1.5">
-          <ul className="flex h-14 gap-0.5 overflow-x-auto rounded-lg">
-            {clips.map((clip) => {
-              const active = isClipActive(clip, currentTime)
-              return (
-                <li
-                  key={clip.id}
-                  className="h-full min-w-0 flex-1"
-                  style={{ flex: clip.duration }}
-                >
-                  <button
-                    type="button"
-                    onPointerDown={(e) => e.stopPropagation()}
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      onClipSelect?.(clip)
-                    }}
-                    className={`h-full w-full overflow-hidden rounded-md bg-track-video transition-all active:scale-[0.98] ${
-                      active
-                        ? 'ring-2 ring-primary ring-offset-1 ring-offset-surface'
-                        : 'opacity-90 hover:opacity-100'
-                    }`}
-                    aria-label={`片段 ${clip.id}`}
-                    aria-pressed={active}
-                  >
-                    <img
-                      src={clip.thumb}
-                      alt=""
-                      className="h-full w-full object-cover"
-                      draggable={false}
-                      loading="lazy"
-                      onError={(e) => {
-                        const img = e.currentTarget
-                        if (img.dataset.fallbackApplied) return
-                        img.dataset.fallbackApplied = '1'
-                        img.src = PREVIEW_POSTER
-                      }}
-                    />
-                  </button>
-                </li>
-              )
-            })}
-            <li className="h-full w-14 shrink-0">
-              <button
-                type="button"
-                disabled={importLoading}
-                onPointerDown={(e) => e.stopPropagation()}
-                onClick={(e) => {
-                  e.stopPropagation()
-                  onImportClick?.()
-                }}
-                className="flex h-full w-full flex-col items-center justify-center rounded-md border border-dashed border-primary/40 bg-primary/5 text-primary transition-all hover:border-primary/60 hover:bg-primary/10 active:scale-[0.98] disabled:cursor-wait disabled:opacity-60"
-                aria-label="导入视频"
+      <article className={TIMELINE_PANEL_CLASS}>
+
+        <div
+
+          ref={timelineAreaRef}
+
+          className="relative flex min-h-0 flex-1 flex-col overflow-hidden"
+
+        >
+
+          <div
+
+            className="flex min-h-0 flex-1 flex-col"
+
+            style={{
+
+              marginLeft: `${TIMELINE_INSET_PCT}%`,
+
+              marginRight: `${TIMELINE_INSET_PCT}%`,
+
+            }}
+
+          >
+
+            <div className="flex min-h-0 flex-1 flex-col overflow-x-hidden px-2 pb-2 pt-1.5">
+
+              <div
+
+                className={`flex min-h-0 flex-1 ${showAddColumn ? 'gap-0.5' : ''} overflow-x-hidden overflow-y-visible`}
+
               >
-                {importLoading ? (
-                  <span className="h-5 w-5 animate-spin rounded-full border-2 border-primary border-t-transparent" />
-                ) : (
-                  <Plus size={22} strokeWidth={2} />
+
+              <div
+
+                ref={timeContentRef}
+
+                className="relative flex min-w-0 flex-1 flex-col overflow-visible"
+
+              >
+
+                <TimelineRuler
+
+                  duration={duration}
+
+                  contentArea
+
+                  onSeek={onSeek}
+
+                  onPlayheadSeekEnd={onPlayheadSeekEnd}
+
+                />
+
+
+
+                <section className={TIMELINE_VIDEO_TRACK_SECTION_CLASS}>
+
+                  <div className={TIMELINE_VIDEO_CLIP_ROW_CLASS}>
+
+                    {clips.map((clip) => {
+
+                      const atPlayhead = isClipActive(clip, currentTime)
+
+                      const selected = selectedVideoClipId === clip.id
+
+                      const highlighted = isClipHighlighted(
+                        selected,
+                        atPlayhead,
+                        isPlaying,
+                        highlightFollowsPlayhead,
+                      )
+
+                      const range = contentRangeStyle(
+
+                        clip.start,
+
+                        clip.start + clip.duration,
+
+                        duration,
+
+                      )
+
+                      return (
+
+                        <div
+
+                          key={clip.id}
+
+                          className="absolute top-0 bottom-0 min-w-[2px]"
+
+                          style={range}
+
+                        >
+
+                          <button
+                            type="button"
+                            onPointerDown={(e) => e.stopPropagation()}
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              onClipSelect?.(clip)
+                            }}
+                            className={videoClipButtonClass(highlighted)}
+                            aria-label={`片段 ${clip.id}`}
+                            aria-pressed={selected}
+                            aria-current={atPlayhead ? 'true' : undefined}
+                          >
+                            <img
+                              src={clip.thumb}
+                              alt=""
+                              className={`h-full w-full object-cover transition-[filter] duration-200 ease-out ${
+                                highlighted
+                                  ? 'brightness-[1.05] saturate-[1.04]'
+                                  : 'brightness-[0.92] group-hover:brightness-[1.02]'
+                              }`}
+                              draggable={false}
+                              loading="lazy"
+                              onError={(e) => {
+                                const img = e.currentTarget
+                                if (img.dataset.fallbackApplied) return
+                                img.dataset.fallbackApplied = '1'
+                                img.src = PREVIEW_POSTER
+                              }}
+                            />
+                            {!highlighted && (
+                              <span
+                                className="pointer-events-none absolute inset-0 bg-white/0 transition-colors duration-200 ease-out group-hover:bg-white/[0.07]"
+                                aria-hidden
+                              />
+                            )}
+                            {highlighted && <ClipTrimHighlight />}
+                          </button>
+
+                        </div>
+
+                      )
+
+                    })}
+
+                  </div>
+
+
+
+                  <span
+
+                    className="pointer-events-none absolute -top-1 z-10 flex -translate-x-1/2 items-center gap-0.5 rounded-full bg-accent px-1.5 py-0.5 text-[9px] font-medium text-white shadow-sm"
+
+                    style={{ left: `${highlightCenterPct}%` }}
+
+                  >
+
+                    <Star size={8} fill="white" />
+
+                    高光时刻
+
+                  </span>
+
+                </section>
+
+
+
+                <div className="relative min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
+
+                <TimelineObjectTracks
+
+                  clips={overlayClips}
+
+                  duration={duration}
+
+                  draggingClipId={draggingClipId}
+
+                  playheadSnapEdge={playheadSnapActive ? playheadSnapEdge : null}
+
+                  onTracksWidthChange={onOverlayTracksWidthChange}
+
+                  onClipClick={onOverlayClipClick}
+
+                  onClipDoubleClick={onOverlayClipDoubleClick}
+
+                  onClipOpenMenu={onOverlayClipOpenMenu}
+
+                  onClipDragStart={onOverlayClipDragStart}
+
+                  onClipDragMove={onOverlayClipDragMove}
+
+                  onClipDragEnd={onOverlayClipDragEnd}
+
+                />
+
+                </div>
+
+
+
+                {playheadSnapActive && (
+
+                  <span
+
+                    className="pointer-events-none absolute top-0 bottom-0 z-[25] w-px -translate-x-1/2 bg-primary shadow-[0_0_8px_rgba(94,124,224,0.85)]"
+
+                    style={{ left: `${playheadLeftPct}%` }}
+
+                    aria-hidden
+
+                  />
+
                 )}
-              </button>
-            </li>
-          </ul>
 
-          {/* 高光时刻标记 */}
-          <span
-            className="pointer-events-none absolute -top-1 z-10 flex -translate-x-1/2 items-center gap-0.5 rounded-full bg-accent px-1.5 py-0.5 text-[9px] font-medium text-white shadow-sm"
-            style={{ left: `${highlightPct}%` }}
-          >
-            <Star size={8} fill="white" />
-            高光时刻
-          </span>
-        </section>
 
-        {/* 原声音频轨道 */}
-        <button
-          type="button"
-          onPointerDown={(e) => e.stopPropagation()}
-          onClick={(e) => {
-            e.stopPropagation()
-            onAudioClick?.()
-          }}
-          className={`relative mx-1 mb-1 block h-8 w-[calc(100%-0.5rem)] shrink-0 overflow-hidden rounded-md text-left transition-all active:scale-[0.99] ${
-            keepOriginalAudio ? 'bg-primary/8 ring-1 ring-transparent' : 'bg-track-video/80 opacity-60 ring-1 ring-border/40'
-          }`}
-          aria-label="编辑原声音频"
-        >
-          <Waveform data={AUDIO_WAVE} color={keepOriginalAudio ? '#5E7CE0' : '#8E9AAB'} height={32} />
-          {!keepOriginalAudio && (
-            <span className="absolute inset-0 flex items-center justify-center gap-1 bg-surface/60 text-[9px] font-medium text-text-muted">
-              <VolumeX size={10} />
-              原声已关闭
-            </span>
-          )}
-        </button>
 
-        {/* 配乐轨道 */}
-        <button
-          type="button"
-          onPointerDown={(e) => e.stopPropagation()}
-          onClick={(e) => {
-            e.stopPropagation()
-            onAudioClick?.()
-          }}
-          className="relative mx-1 mb-2 block w-[calc(100%-0.5rem)] shrink-0 text-left transition-all active:scale-[0.99]"
-          aria-label="编辑配乐"
-        >
-          <p className="mb-0.5 truncate px-1 text-[9px] text-text-muted">{bgmLabel}</p>
-          <article
-            className={`h-5 overflow-hidden rounded-md ${
-              bgmId ? 'bg-accent/10' : 'bg-track-video/60'
-            }`}
-          >
-            <Waveform
-              data={MUSIC_WAVE}
-              color={bgmId ? '#FFB357' : '#8E9AAB'}
-              height={20}
-              opacity={bgmId ? 0.9 : 0.5}
-            />
-          </article>
-        </button>
+                <TimelinePlayhead
 
-        {/* 播放头 */}
-        <span
-          className="pointer-events-none absolute bottom-0 top-6 z-20 w-0.5 -translate-x-1/2 bg-primary shadow-[0_0_6px_rgba(94,124,224,0.6)]"
-          style={{ left: `${playheadPct}%` }}
-        >
-          <span className="absolute -left-1.5 -top-1 h-3 w-3 rounded-full border-2 border-white bg-primary shadow-sm" />
-        </span>
+                  currentTime={currentTime}
+
+                  duration={duration}
+
+                  areaRef={timeContentRef}
+
+                  contentArea
+
+                  snapActive={playheadSnapActive}
+
+                  onSeek={onSeek}
+
+                  onSeekEnd={onPlayheadSeekEnd}
+
+                />
+
+              </div>
+
+
+
+              {showAddColumn && (
+
+                <aside
+
+                  className="flex w-11 shrink-0 flex-col"
+
+                  aria-label="添加素材"
+
+                >
+
+                  <div
+
+                    className={`${TIMELINE_RULER_ROW_CLASS} pointer-events-none shrink-0`}
+
+                    aria-hidden
+
+                  />
+
+                  <div className={TIMELINE_VIDEO_TRACK_SECTION_CLASS}>
+
+                    <div className={TIMELINE_VIDEO_CLIP_ROW_CLASS}>
+
+                      <button
+
+                        type="button"
+
+                        disabled={importLoading}
+
+                        onPointerDown={(e) => e.stopPropagation()}
+
+                        onClick={(e) => {
+
+                          e.stopPropagation()
+
+                          onImportClick?.()
+
+                        }}
+
+                        className={TIMELINE_ADD_CLIP_BUTTON_CLASS}
+
+                        aria-label="添加视频素材"
+
+                      >
+
+                        {importLoading ? (
+
+                          <span className="h-5 w-5 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+
+                        ) : (
+
+                          <Plus size={20} strokeWidth={2} />
+
+                        )}
+
+                      </button>
+
+                    </div>
+
+                  </div>
+
+                </aside>
+
+              )}
+
+              </div>
+
+            </div>
+
+          </div>
+
+        </div>
+
       </article>
+
     </section>
+
   )
+
 }
+
+

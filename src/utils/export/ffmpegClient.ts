@@ -1,7 +1,5 @@
 import { FFmpeg } from '@ffmpeg/ffmpeg'
 import { toBlobURL } from '@ffmpeg/util'
-import coreJsUrl from '@ffmpeg/core?url'
-import coreWasmUrl from '@ffmpeg/core/wasm?url'
 
 const CORE_CDN = 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/esm'
 
@@ -9,18 +7,10 @@ let ffmpegInstance: FFmpeg | null = null
 let loadPromise: Promise<FFmpeg> | null = null
 
 async function loadFfmpegCore(ffmpeg: FFmpeg) {
-  try {
-    await ffmpeg.load({
-      coreURL: await toBlobURL(coreJsUrl, 'text/javascript'),
-      wasmURL: await toBlobURL(coreWasmUrl, 'application/wasm'),
-    })
-  } catch (localError) {
-    console.warn('local ffmpeg core load failed, trying CDN', localError)
-    await ffmpeg.load({
-      coreURL: await toBlobURL(`${CORE_CDN}/ffmpeg-core.js`, 'text/javascript'),
-      wasmURL: await toBlobURL(`${CORE_CDN}/ffmpeg-core.wasm`, 'application/wasm'),
-    })
-  }
+  await ffmpeg.load({
+    coreURL: await toBlobURL(`${CORE_CDN}/ffmpeg-core.js`, 'text/javascript'),
+    wasmURL: await toBlobURL(`${CORE_CDN}/ffmpeg-core.wasm`, 'application/wasm'),
+  })
 }
 
 export async function getFfmpeg(): Promise<FFmpeg> {

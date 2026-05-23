@@ -1,14 +1,19 @@
 import { useCallback, useLayoutEffect, useRef, useState } from 'react'
 import { RotateCw } from 'lucide-react'
 import type { TextOverlay } from '@/types/editorState'
+import { PREVIEW_TEXT_OVERLAY_ATTR } from '@/utils/editorSelectionHitTest'
 import { getFontFamily, resolveTextBackground, resolveTextDimensions } from '@/data/textStyles'
 
 interface VideoTextOverlayProps {
   overlay: TextOverlay
   editable?: boolean
+  selected?: boolean
   onChange?: (patch: Partial<TextOverlay>) => void
-  /** 非编辑态点击文字时回调（用于重新打开文字面板） */
+  /** 手势结束（用于提交到历史记录） */
+  onTransformEnd?: () => void
+  /** 非编辑态点击文字时选中，以便缩放旋转 */
   onActivate?: () => void
+  onContextMenu?: (e: React.MouseEvent) => void
 }
 
 type ResizeEdge = 'top' | 'bottom' | 'left' | 'right'
@@ -63,8 +68,11 @@ function fitTextInBox(container: HTMLElement, textEl: HTMLElement, maxFontPx: nu
 export function VideoTextOverlay({
   overlay,
   editable,
+  selected,
   onChange,
+  onTransformEnd,
   onActivate,
+  onContextMenu,
 }: VideoTextOverlayProps) {
   const canEdit = Boolean(editable && onChange)
   const boxRef = useRef<HTMLSpanElement>(null)
@@ -103,7 +111,11 @@ export function VideoTextOverlay({
   }, [])
 
   const bindPointerSession = useCallback(
-    (e: React.PointerEvent, onMove: (ev: PointerEvent) => void) => {
+    (
+      e: React.PointerEvent,
+      onMove: (ev: PointerEvent) => void,
+      onEnd?: () => void,
+    ) => {
       e.preventDefault()
       e.stopPropagation()
       const el = e.currentTarget as HTMLElement
@@ -114,6 +126,7 @@ export function VideoTextOverlay({
         el.releasePointerCapture(e.pointerId)
         window.removeEventListener('pointermove', handleMove)
         window.removeEventListener('pointerup', handleUp)
+        onEnd?.()
       }
 
       window.addEventListener('pointermove', handleMove)
@@ -121,6 +134,10 @@ export function VideoTextOverlay({
     },
     [],
   )
+
+  const endTransform = useCallback(() => {
+    onTransformEnd?.()
+  }, [onTransformEnd])
 
   const handleMoveStart = useCallback(
     (e: React.PointerEvent) => {
@@ -133,16 +150,20 @@ export function VideoTextOverlay({
       const startPx = e.clientX
       const startPy = e.clientY
 
-      bindPointerSession(e, (ev) => {
-        const dx = ((ev.clientX - startPx) / rect.width) * 100
-        const dy = ((ev.clientY - startPy) / rect.height) * 100
-        onChange({
-          x: clamp(startX + dx, 5, 95),
-          y: clamp(startY + dy, 8, 88),
-        })
-      })
+      bindPointerSession(
+        e,
+        (ev) => {
+          const dx = ((ev.clientX - startPx) / rect.width) * 100
+          const dy = ((ev.clientY - startPy) / rect.height) * 100
+          onChange({
+            x: clamp(startX + dx, 5, 95),
+            y: clamp(startY + dy, 8, 88),
+          })
+        },
+        endTransform,
+      )
     },
-    [canEdit, onChange, overlay.x, overlay.y, getVideoRect, bindPointerSession],
+    [canEdit, onChange, overlay.x, overlay.y, getVideoRect, bindPointerSession, endTransform],
   )
 
   const handleEdgeResize = useCallback(
@@ -155,7 +176,9 @@ export function VideoTextOverlay({
       const startPx = e.clientX
       const startPy = e.clientY
 
-      bindPointerSession(e, (ev) => {
+      bindPointerSession(
+        e,
+        (ev) => {
         const dx = ((ev.clientX - startPx) / rect.width) * 100
         const dy = ((ev.clientY - startPy) / rect.height) * 100
 
@@ -185,9 +208,11 @@ export function VideoTextOverlay({
             })
             break
         }
-      })
+      },
+        endTransform,
+      )
     },
-    [canEdit, onChange, overlay.x, overlay.y, width, height, getVideoRect, bindPointerSession],
+    [canEdit, onChange, overlay.x, overlay.y, width, height, getVideoRect, bindPointerSession, endTransform],
   )
 
   const handleCornerResize = useCallback(
@@ -200,7 +225,9 @@ export function VideoTextOverlay({
       const startPx = e.clientX
       const startPy = e.clientY
 
-      bindPointerSession(e, (ev) => {
+      bindPointerSession(
+        e,
+        (ev) => {
         const dx = ((ev.clientX - startPx) / rect.width) * 100
         const dy = ((ev.clientY - startPy) / rect.height) * 100
 
@@ -213,9 +240,11 @@ export function VideoTextOverlay({
           x: clamp(start.x + dx, 5, 95),
           y: clamp(start.y + dy, 8, 88),
         })
-      })
+      },
+        endTransform,
+      )
     },
-    [canEdit, onChange, overlay.x, overlay.y, width, height, getVideoRect, bindPointerSession],
+    [canEdit, onChange, overlay.x, overlay.y, width, height, getVideoRect, bindPointerSession, endTransform],
   )
 
   const handleRotateStart = useCallback(
@@ -226,13 +255,17 @@ export function VideoTextOverlay({
       const startAngle = Math.atan2(e.clientY - center.y, e.clientX - center.x)
       const startRotation = rotation
 
-      bindPointerSession(e, (ev) => {
-        const angle = Math.atan2(ev.clientY - center.y, ev.clientX - center.x)
-        const delta = ((angle - startAngle) * 180) / Math.PI
-        onChange({ rotation: Math.round(startRotation + delta) })
-      })
+      bindPointerSession(
+        e,
+        (ev) => {
+          const angle = Math.atan2(ev.clientY - center.y, ev.clientX - center.x)
+          const delta = ((angle - startAngle) * 180) / Math.PI
+          onChange({ rotation: Math.round(startRotation + delta) })
+        },
+        endTransform,
+      )
     },
-    [canEdit, onChange, rotation, bindPointerSession],
+    [canEdit, onChange, rotation, bindPointerSession, endTransform],
   )
 
   const handleActivateClick = useCallback(
@@ -273,11 +306,16 @@ export function VideoTextOverlay({
       />
     ) : null
 
+  const showSelectedRing = Boolean(selected && !canEdit)
+
   return (
     <span
+      {...{ [PREVIEW_TEXT_OVERLAY_ATTR]: '' }}
       ref={boxRef}
+      onContextMenu={onContextMenu}
+      onClick={(e) => e.stopPropagation()}
       className={`absolute z-10 select-none ${
-        canEdit ? '' : onActivate ? 'cursor-pointer' : 'pointer-events-none'
+        canEdit || onContextMenu ? '' : onActivate ? 'cursor-pointer' : 'pointer-events-none'
       }`}
       style={{
         left: `${overlay.x}%`,
@@ -331,7 +369,13 @@ export function VideoTextOverlay({
         onPointerDown={canEdit ? handleMoveStart : undefined}
         onClick={canEdit ? undefined : handleActivateClick}
         className={`flex h-full w-full items-center justify-center overflow-hidden rounded-md px-2 py-1 ${
-          canEdit ? 'cursor-move border-2 border-dashed border-white/80' : ''
+          canEdit
+            ? 'cursor-move border-2 border-dashed border-white/80'
+            : showSelectedRing
+              ? 'cursor-pointer ring-2 ring-primary ring-offset-1 ring-offset-black/30'
+              : onActivate || onContextMenu
+                ? 'cursor-pointer'
+                : ''
         } ${isPlaceholder && canEdit ? 'opacity-70' : ''}`}
         style={{ backgroundColor: background }}
       >
