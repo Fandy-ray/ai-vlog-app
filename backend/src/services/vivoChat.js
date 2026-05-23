@@ -8,15 +8,26 @@ const DEFAULT_MODEL = 'Doubao-Seed-2.0-mini'
  * 调用 vivo 大模型 Chat Completions（OpenAI 兼容协议）
  * @see https://api-ai.vivo.com.cn/v1/chat/completions
  */
+function getAppKey() {
+  return process.env.VIVO_AIGC_APP_KEY || process.env.VIVO_APP_KEY || ''
+}
+
 async function chatCompletion({ messages, model, maxTokens, temperature }) {
-  const appKey = process.env.VIVO_APP_KEY
+  const appKey = getAppKey()
   if (!appKey) {
-    throw new Error('未配置 VIVO_APP_KEY')
+    throw new Error('未配置 VIVO_AIGC_APP_KEY 或 VIVO_APP_KEY')
   }
 
-  const baseUrl = (process.env.VIVO_CHAT_BASE_URL || DEFAULT_BASE_URL).replace(/\/$/, '')
+  const baseUrl = (
+    process.env.VIVO_AIGC_BASE_URL ||
+    process.env.VIVO_CHAT_BASE_URL ||
+    DEFAULT_BASE_URL
+  ).replace(/\/$/, '')
+  const chatPath = process.env.VIVO_AIGC_CHAT_PATH || '/v1/chat/completions'
+  const chatUrl = `${baseUrl}${chatPath.startsWith('/') ? chatPath : `/${chatPath}`}`
   const requestId = randomUUID()
-  const modelName = model || process.env.VIVO_CHAT_MODEL || DEFAULT_MODEL
+  const modelName =
+    model || process.env.VIVO_AIGC_CHAT_MODEL || process.env.VIVO_CHAT_MODEL || DEFAULT_MODEL
 
   const payload = {
     model: modelName,
@@ -35,7 +46,7 @@ async function chatCompletion({ messages, model, maxTokens, temperature }) {
     payload.enable_thinking = false
   }
 
-  const response = await axios.post(`${baseUrl}/chat/completions`, payload, {
+  const response = await axios.post(chatUrl, payload, {
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${appKey}`,

@@ -31,6 +31,10 @@ function notifyChanged() {
   window.dispatchEvent(new CustomEvent(VLOG_MATERIALS_CHANGED))
 }
 
+function isDirectorClip(row: VlogClipRecord): boolean {
+  return row.source === 'director' || row.source === undefined
+}
+
 function sortWeightForScene(sceneId: string) {
   const scenes = getActiveScenes()
   const index = scenes.findIndex((s) => s.id === sceneId)
@@ -50,6 +54,7 @@ export async function saveClipForScene(
 
   const record: StoredClip = {
     id: `clip-${sceneId}-${Date.now()}`,
+    source: 'director',
     sceneId,
     sceneTitle,
     name: `${sceneTitle}.mp4`,
@@ -101,7 +106,7 @@ export async function getAllClipMeta(): Promise<VlogClipRecord[]> {
     const tx = db.transaction(STORE, 'readonly')
     const req = tx.objectStore(STORE).getAll()
     req.onsuccess = () => {
-      const rows = (req.result as StoredClip[]) ?? []
+      const rows = ((req.result as StoredClip[]) ?? []).filter(isDirectorClip)
       resolve(
         rows
           .map(({ blob: _b, ...meta }) => meta)
@@ -217,7 +222,7 @@ export async function loadAllClipsForPreview(): Promise<ClipForUpload[]> {
     const tx = db.transaction(STORE, 'readonly')
     const req = tx.objectStore(STORE).getAll()
     req.onsuccess = () => {
-      const rows = (req.result as StoredClip[]) ?? []
+      const rows = ((req.result as StoredClip[]) ?? []).filter(isDirectorClip)
       resolve(
         rows
           .sort((a, b) => sortWeightForScene(a.sceneId) - sortWeightForScene(b.sceneId))
@@ -247,7 +252,7 @@ export async function exportClipsForUpload(): Promise<ClipForUpload[]> {
     const tx = db.transaction(STORE, 'readonly')
     const req = tx.objectStore(STORE).getAll()
     req.onsuccess = () => {
-      const rows = (req.result as StoredClip[]) ?? []
+      const rows = ((req.result as StoredClip[]) ?? []).filter(isDirectorClip)
       resolve(
         rows
           .filter((row) => isClipCommitted(row))
@@ -273,7 +278,7 @@ export async function exportMaterialsForAI(): Promise<VlogMaterialExport[]> {
     const tx = db.transaction(STORE, 'readonly')
     const req = tx.objectStore(STORE).getAll()
     req.onsuccess = () => {
-      const rows = (req.result as StoredClip[]) ?? []
+      const rows = ((req.result as StoredClip[]) ?? []).filter(isDirectorClip)
       const exports: VlogMaterialExport[] = rows
         .sort((a, b) => sortWeightForScene(a.sceneId) - sortWeightForScene(b.sceneId))
         .map((row) => ({

@@ -1,5 +1,9 @@
 const { chatCompletion } = require('./vivoChat')
 
+function getAppKey() {
+  return process.env.VIVO_AIGC_APP_KEY || process.env.VIVO_APP_KEY || ''
+}
+
 const DEFAULT_CRITERIA = {
   mood: ['轻松', '治愈'],
   tags: ['日常', '旅行'],
@@ -132,13 +136,13 @@ async function analyzeVlogDescription(description, vlogType = '') {
   const text = (description || '').trim()
   const type = (vlogType || '').trim()
 
-  if (!process.env.VIVO_APP_KEY) {
+  if (!getAppKey()) {
     const mock = mockAnalyzeVlogDescription(text, type)
     return {
       criteria: stripSource(mock),
       source: 'fallback',
-      reason: '未配置 VIVO_APP_KEY',
-      fallbackReason: '未配置 VIVO_APP_KEY',
+      reason: '未配置 VIVO_AIGC_APP_KEY',
+      fallbackReason: '未配置 VIVO_AIGC_APP_KEY',
     }
   }
 

@@ -1,6 +1,11 @@
+/** 素材来源：仅 AI 导拍流程写入 IndexedDB */
+export type VlogMaterialSource = 'director'
+
 /** 本地持久化的拍摄片段（IndexedDB 存 blob，元数据同库） */
 export interface VlogClipRecord {
   id: string
+  /** 固定为 director，与智能创作本地上传隔离 */
+  source?: VlogMaterialSource
   sceneId: string
   sceneTitle: string
   name: string

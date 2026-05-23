@@ -9,12 +9,19 @@ import {
   Wand2,
 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { Button } from '@/components/Button'
 import { PageShell } from '@/components/PageShell'
 import { Toast } from '@/components/Toast'
+import {
+  STUDIO_EXPORT_RESULT_KEY,
+  type ProjectFlow,
+  type StudioExportResult,
+} from '@/constants/projectFlow'
 import { COMPLETE_VIDEO } from '@/data/recommendations'
 import { useToast } from '@/hooks/useToast'
+import { getExportedVideo } from '@/state/exportedVideo'
+import { hasStudioEditorProject } from '@/state/importedProject'
 import type { VlogGenerateManifest, VlogGenerateResult } from '@/types/vlogGenerate'
 import {
   VLOG_GENERATE_MANIFEST_KEY,
@@ -22,7 +29,7 @@ import {
 } from '@/types/vlogGenerate'
 import { getDirectorStyleId, getDirectorType } from '@/utils/vlogDirectorStore'
 import { exportAllClipsForRegenerate } from '@/utils/vlogMaterialStore'
-import { formatDurationMs } from '@/utils/formatTime'
+import { formatDurationMs, formatTime } from '@/utils/formatTime'
 import { SaveToPhotosGuide } from '@/components/SaveToPhotosGuide/SaveToPhotosGuide'
 import { resolveMediaUrl } from '@/utils/resolveMediaUrl'
 import { downloadVideo, isLikelyIOS, shareVideoForPhotos } from '@/utils/saveVideo'
@@ -42,8 +49,53 @@ function loadGenerateResult(): VlogGenerateResult | null {
   }
 }
 
+function loadStudioExport(): StudioExportResult | null {
+  try {
+    const raw = sessionStorage.getItem(STUDIO_EXPORT_RESULT_KEY)
+    if (raw) {
+      const data = JSON.parse(raw) as StudioExportResult
+      return {
+        ...data,
+        videoUrl: resolveMediaUrl(data.videoUrl) || data.videoUrl,
+        coverUrl: resolveMediaUrl(data.coverUrl) || data.coverUrl,
+      }
+    }
+  } catch {
+    /* ignore */
+  }
+
+  const exported = getExportedVideo()
+  if (!exported?.url) return null
+  return {
+    title: exported.title || '我的 Vlog',
+    videoUrl: exported.url,
+    coverUrl: exported.posterUrl,
+    durationSec: exported.duration,
+  }
+}
+
+function resolvePageFlow(locationState: unknown): ProjectFlow {
+  const fromState = (locationState as { flow?: ProjectFlow })?.flow
+  if (fromState === 'studio' || fromState === 'director') return fromState
+  try {
+    if (sessionStorage.getItem(STUDIO_EXPORT_RESULT_KEY)) return 'studio'
+    if (sessionStorage.getItem(VLOG_GENERATE_RESULT_KEY)) return 'director'
+  } catch {
+    /* ignore */
+  }
+  if (getExportedVideo()?.url) return 'studio'
+  return 'director'
+}
+
 export function CompletePage() {
   const navigate = useNavigate()
+  const location = useLocation()
+  const flow = useMemo(
+    () => resolvePageFlow(location.state),
+    [location.state],
+  )
+  const isDirector = flow === 'director'
+
   const { message, show, visible } = useToast()
   const [playing, setPlaying] = useState(false)
   const [progress, setProgress] = useState(0)
@@ -51,20 +103,36 @@ export function CompletePage() {
   const [saving, setSaving] = useState(false)
   const [saveGuideOpen, setSaveGuideOpen] = useState(false)
   const videoRef = useRef<HTMLVideoElement>(null)
-  const [generated] = useState(loadGenerateResult)
+  const [studioExport] = useState(() =>
+    flow === 'studio' ? loadStudioExport() : null,
+  )
+  const [generated] = useState(() =>
+    flow === 'director' ? loadGenerateResult() : null,
+  )
   const [regenerating, setRegenerating] = useState(false)
 
-  const title = generated?.title ?? COMPLETE_VIDEO.title
-  const narration = generated?.ttsNarration || generated?.narration
-  const videoUrl = generated?.videoUrl
-  const coverUrl = generated?.coverUrl || COMPLETE_VIDEO.cover
+  const title = isDirector
+    ? (generated?.title ?? COMPLETE_VIDEO.title)
+    : (studioExport?.title ?? COMPLETE_VIDEO.title)
+  const narration = isDirector
+    ? generated?.ttsNarration || generated?.narration
+    : undefined
+  const videoUrl = isDirector ? generated?.videoUrl : studioExport?.videoUrl
+  const coverUrl = isDirector
+    ? generated?.coverUrl || COMPLETE_VIDEO.cover
+    : studioExport?.coverUrl || COMPLETE_VIDEO.cover
   const durationLabel = useMemo(() => {
-    if (generated?.timeline?.length) {
+    if (isDirector && generated?.timeline?.length) {
       const sec = generated.timeline.reduce((s, t) => s + t.duration, 0)
       return formatDurationMs(sec * 1000)
     }
+    if (!isDirector && studioExport?.durationSec) {
+      return formatTime(studioExport.durationSec)
+    }
     return COMPLETE_VIDEO.duration
-  }, [generated])
+  }, [generated, isDirector, studioExport?.durationSec])
+
+  const pageTitle = isDirector ? 'AI 成片预览' : '成片预览'
 
   useEffect(() => {
     const video = videoRef.current
@@ -136,6 +204,7 @@ export function CompletePage() {
   }, [videoUrl, show, runSaveToPhotos])
 
   const handleRegenerate = useCallback(async () => {
+    if (!isDirector) return
     setRegenerating(true)
     try {
       const clips = await exportAllClipsForRegenerate()
@@ -166,7 +235,7 @@ export function CompletePage() {
     } finally {
       setRegenerating(false)
     }
-  }, [generated?.effects?.colorGrade, navigate, show])
+  }, [generated?.effects?.colorGrade, isDirector, navigate, show])
 
   return (
     <PageShell scrollable className="pb-0">
@@ -179,7 +248,9 @@ export function CompletePage() {
         >
           <ArrowLeft size={20} />
         </button>
-        <h1 className="flex-1 text-center text-[15px] font-semibold text-text">AI 成片预览</h1>
+        <h1 className="flex-1 text-center text-[15px] font-semibold text-text">
+          {pageTitle}
+        </h1>
         <span className="w-9" />
       </header>
 
@@ -220,8 +291,7 @@ export function CompletePage() {
             />
           )}
 
-
-          {generated?.effects && !videoError && (
+          {isDirector && generated?.effects && !videoError && (
             <div className="absolute left-3 top-3 z-20 flex flex-wrap gap-1.5">
               <span className="rounded-full bg-black/50 px-2 py-0.5 text-[9px] text-white/90 backdrop-blur">
                 {generated.effects.transition} 转场
@@ -250,9 +320,11 @@ export function CompletePage() {
           <div className="pointer-events-none absolute inset-x-0 bottom-0 p-4">
             <h2 className="text-lg font-bold text-white drop-shadow">{title}</h2>
             {narration && (
-              <p className="mt-1 line-clamp-2 text-xs text-white/90 drop-shadow">{narration}</p>
+              <p className="mt-1 line-clamp-2 text-xs text-white/90 drop-shadow">
+                {narration}
+              </p>
             )}
-            {generated?.ai?.stitchNote && (
+            {isDirector && generated?.ai?.stitchNote && (
               <p className="mt-1 text-[10px] text-white/70">{generated.ai.stitchNote}</p>
             )}
             {videoUrl && !videoError && (
@@ -269,7 +341,7 @@ export function CompletePage() {
           </div>
         </article>
 
-        {generated?.director && (
+        {isDirector && generated?.director && (
           <section className="mb-4 rounded-[var(--radius-lg)] bg-gradient-to-br from-primary/8 to-surface p-4 shadow-[var(--shadow-card)] ring-1 ring-primary/10">
             <p className="text-xs font-semibold text-primary">AI 导演 · 故事线</p>
             {generated.director.videoTitle && (
@@ -292,13 +364,14 @@ export function CompletePage() {
             )}
             {generated.director.chapters?.length ? (
               <p className="mt-2 text-[10px] text-text-muted">
-                情绪章节：{generated.director.chapters.map((c) => c.name || c.mood).join(' → ')}
+                情绪章节：
+                {generated.director.chapters.map((c) => c.name || c.mood).join(' → ')}
               </p>
             ) : null}
           </section>
         )}
 
-        {(generated?.effects?.hasTts || generated?.bgm) && (
+        {isDirector && (generated?.effects?.hasTts || generated?.bgm) && (
           <section className="mb-4 flex items-center gap-3 rounded-[var(--radius-lg)] bg-surface p-3 shadow-[var(--shadow-card)]">
             <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 text-primary">
               <Music2 size={20} />
@@ -314,9 +387,12 @@ export function CompletePage() {
                 </>
               ) : (
                 <>
-                  <p className="text-xs font-semibold text-text">BGM · {generated.bgm?.title}</p>
+                  <p className="text-xs font-semibold text-text">
+                    BGM · {generated.bgm?.title}
+                  </p>
                   <p className="text-[10px] text-text-muted">
-                    {generated.bgm?.artist} · {generated.bgm?.bpm} BPM · {generated.bgm?.mood}
+                    {generated.bgm?.artist} · {generated.bgm?.bpm} BPM ·{' '}
+                    {generated.bgm?.mood}
                   </p>
                 </>
               )}
@@ -329,13 +405,15 @@ export function CompletePage() {
           </section>
         )}
 
-        {generated?.analysis && (
+        {isDirector && generated?.analysis && (
           <section className="mb-4 rounded-[var(--radius-lg)] bg-surface p-3 shadow-[var(--shadow-card)]">
             <div className="mb-2 flex items-center gap-2">
               <Sparkles size={14} className="text-primary" />
               <h3 className="text-xs font-semibold text-text">AI 镜头分析</h3>
             </div>
-            <p className="mb-2 text-[11px] text-text-secondary">{generated.analysis.summary}</p>
+            <p className="mb-2 text-[11px] text-text-secondary">
+              {generated.analysis.summary}
+            </p>
             <ul className="space-y-1.5">
               {generated.analysis.clips
                 .filter((c) => c.selected)
@@ -355,7 +433,7 @@ export function CompletePage() {
           </section>
         )}
 
-        {generated?.timeline && generated.timeline.length > 0 && (
+        {isDirector && generated?.timeline && generated.timeline.length > 0 && (
           <section className="mb-5 rounded-[var(--radius-lg)] bg-surface p-3 shadow-[var(--shadow-card)]">
             <h3 className="mb-2 text-xs font-semibold text-text">AI 剪辑时间轴</h3>
             <ol className="space-y-2">
@@ -364,12 +442,20 @@ export function CompletePage() {
                   <span className="font-medium text-text">{item.shotTitle}</span>
                   <span className="text-text-muted"> · {item.materialName}</span>
                   {item.caption && (
-                    <span className="mt-0.5 block text-text-muted">字幕：{item.caption}</span>
+                    <span className="mt-0.5 block text-text-muted">
+                      字幕：{item.caption}
+                    </span>
                   )}
                 </li>
               ))}
             </ol>
           </section>
+        )}
+
+        {!isDirector && (
+          <p className="mb-5 text-center text-xs text-text-muted">
+            本片由你在「开始智能创作」中导入的本地视频剪辑导出，与 AI 导拍素材无关。
+          </p>
         )}
 
         <section className="mb-8 flex flex-col gap-3">
@@ -383,25 +469,51 @@ export function CompletePage() {
           >
             {saving ? '导出中…' : '导出视频'}
           </Button>
-          <Button
-            variant="outline"
-            size="lg"
-            fullWidth
-            icon={<RefreshCw size={18} />}
-            disabled={regenerating}
-            onClick={() => void handleRegenerate()}
-          >
-            {regenerating ? '准备中…' : '重新生成'}
-          </Button>
-          <Button
-            variant="soft"
-            size="lg"
-            fullWidth
-            icon={<Wand2 size={18} />}
-            onClick={() => navigate('/vlog-learn')}
-          >
-            返回拍摄清单
-          </Button>
+
+          {isDirector ? (
+            <>
+              <Button
+                variant="outline"
+                size="lg"
+                fullWidth
+                icon={<RefreshCw size={18} />}
+                disabled={regenerating}
+                onClick={() => void handleRegenerate()}
+              >
+                {regenerating ? '准备中…' : '重新生成'}
+              </Button>
+              <Button
+                variant="soft"
+                size="lg"
+                fullWidth
+                icon={<Wand2 size={18} />}
+                onClick={() => navigate('/vlog-learn')}
+              >
+                返回拍摄清单
+              </Button>
+            </>
+          ) : (
+            <>
+              {hasStudioEditorProject() && (
+                <Button
+                  variant="outline"
+                  size="lg"
+                  fullWidth
+                  onClick={() => navigate('/editor')}
+                >
+                  继续编辑
+                </Button>
+              )}
+              <Button
+                variant="soft"
+                size="lg"
+                fullWidth
+                onClick={() => navigate('/create')}
+              >
+                再导入一组视频
+              </Button>
+            </>
+          )}
         </section>
       </section>
 

@@ -14,9 +14,13 @@ import {
 import { setExportedVideo } from '@/state/exportedVideo'
 import {
   getEditorProject,
-  hasEditorProject,
+  hasStudioEditorProject,
   updateEditorProject,
 } from '@/state/importedProject'
+import {
+  STUDIO_EXPORT_RESULT_KEY,
+  type StudioExportResult,
+} from '@/constants/projectFlow'
 import { DEFAULT_CROP } from '@/types/clipTransform'
 import type { NormalizedCrop } from '@/types/clipTransform'
 import { refineCropToFillFrame } from '@/utils/videoFit'
@@ -211,13 +215,20 @@ function createInitialEditorSnapshot(
   project: ReturnType<typeof getEditorProject>,
 ): EditorSnapshot {
   const session = normalizeSnapshot(getEditorSession())
-  const clips = project?.clips ?? VIDEO_CLIPS
-  const duration = project?.duration ?? PROJECT_DURATION
+  const isStudio = project?.flow === 'studio'
+  const clips = isStudio ? project.clips : (project?.clips ?? VIDEO_CLIPS)
+  const duration = isStudio
+    ? project.duration
+    : (project?.duration ?? PROJECT_DURATION)
   return normalizeSnapshot(
     {
       ...session,
-      videoClips: session.videoClips?.length ? session.videoClips : clips,
-      videoDuration: session.videoDuration ?? duration,
+      videoClips: isStudio
+        ? clips
+        : session.videoClips?.length
+          ? session.videoClips
+          : clips,
+      videoDuration: isStudio ? duration : (session.videoDuration ?? duration),
     },
     duration,
   )
@@ -244,11 +255,13 @@ loadEditorSessionFromStorage()
 export function EditorPage() {
   const navigate = useNavigate()
   const initialProject = getEditorProject()
+  const studioProject =
+    initialProject?.flow === 'studio' ? initialProject : null
   const [clips, setClips] = useState<VideoClip[]>(
-    () => initialProject?.clips ?? VIDEO_CLIPS,
+    () => studioProject?.clips ?? [],
   )
   const [projectDuration, setProjectDuration] = useState(
-    () => initialProject?.duration ?? PROJECT_DURATION,
+    () => studioProject?.duration ?? 1,
   )
   const highlightAt = Math.min(projectDuration * 0.54, projectDuration - 1)
   const importInputRef = useRef<HTMLInputElement>(null)
@@ -274,7 +287,7 @@ export function EditorPage() {
   }, [clips, selectedVideoClipId])
 
   useEffect(() => {
-    if (!hasEditorProject()) {
+    if (!hasStudioEditorProject()) {
       navigate('/create', { replace: true })
     }
   }, [navigate])
@@ -2213,7 +2226,7 @@ export function EditorPage() {
   ])
 
   const handleExport = useCallback(async () => {
-    if (!hasEditorProject()) {
+    if (!hasStudioEditorProject()) {
       show(editorToasts.exportNeedProject)
       navigate('/create')
       return
@@ -2248,8 +2261,22 @@ export function EditorPage() {
       )
 
       setExportedVideo(result)
+      const studioPayload: StudioExportResult = {
+        title: result.title || '我的 Vlog',
+        videoUrl: result.url,
+        coverUrl: result.posterUrl,
+        durationSec: result.duration,
+      }
+      try {
+        sessionStorage.setItem(
+          STUDIO_EXPORT_RESULT_KEY,
+          JSON.stringify(studioPayload),
+        )
+      } catch {
+        /* ignore quota */
+      }
       show(editorToasts.exportDone)
-      navigate('/complete')
+      navigate('/complete', { state: { flow: 'studio' } })
     } catch (error) {
       const msg = error instanceof Error ? error.message : ''
       if (msg !== 'cancelled') {

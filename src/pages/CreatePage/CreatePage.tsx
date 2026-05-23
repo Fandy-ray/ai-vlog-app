@@ -1,12 +1,16 @@
 import { ArrowLeft, Film, Plus, Trash2, Upload } from 'lucide-react'
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Button } from '@/components/Button'
 import { PageShell } from '@/components/PageShell'
 import { Toast } from '@/components/Toast'
 import { useToast } from '@/hooks/useToast'
 import { resetEditorSession } from '@/state/editorSession'
-import { setEditorProject } from '@/state/importedProject'
+import {
+  revokeEditorProject,
+  setStudioEditorProject,
+} from '@/state/importedProject'
+import { STUDIO_EXPORT_RESULT_KEY } from '@/constants/projectFlow'
 import { formatTime } from '@/utils/formatTime'
 import {
   buildClipsFromImports,
@@ -20,6 +24,10 @@ export function CreatePage() {
   const [items, setItems] = useState<ImportedVideoFile[]>([])
   const [loading, setLoading] = useState(false)
   const { message, show, visible } = useToast()
+
+  useEffect(() => {
+    revokeEditorProject()
+  }, [])
 
   const totalDuration = items.reduce((sum, item) => sum + item.duration, 0)
 
@@ -68,7 +76,12 @@ export function CreatePage() {
     }
 
     resetEditorSession()
-    setEditorProject(buildClipsFromImports(items))
+    try {
+      sessionStorage.removeItem(STUDIO_EXPORT_RESULT_KEY)
+    } catch {
+      /* ignore */
+    }
+    setStudioEditorProject(buildClipsFromImports(items))
     navigate('/editor')
   }
 

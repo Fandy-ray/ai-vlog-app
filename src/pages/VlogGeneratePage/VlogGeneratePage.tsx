@@ -87,7 +87,10 @@ export function VlogGeneratePage() {
         )
 
         await new Promise((r) => setTimeout(r, 600))
-        navigate('/complete', { replace: true, state: { fromGenerate: true } })
+        navigate('/complete', {
+          replace: true,
+          state: { flow: 'director', fromGenerate: true },
+        })
       } catch (e) {
         if (stepTimer.current) clearInterval(stepTimer.current)
         if (elapsedTimer.current) clearInterval(elapsedTimer.current)
