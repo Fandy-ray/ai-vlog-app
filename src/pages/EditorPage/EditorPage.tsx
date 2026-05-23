@@ -42,6 +42,11 @@ import { PageShell } from '@/components/PageShell'
 import { Toast } from '@/components/Toast'
 import { AIFeatureBar } from '@/components/editor/AIFeatureBar'
 import { AudioPanel } from '@/components/editor/AudioPanel'
+import {
+  MagicDoodlePanel,
+  type MagicDoodleDraft,
+  type MagicDoodleMode,
+} from '@/components/editor/MagicDoodlePanel'
 import { NarrationPanel } from '@/components/editor/NarrationPanel'
 import { BottomToolbar } from '@/components/editor/BottomToolbar'
 import { EffectPanel } from '@/components/editor/EffectPanel'
@@ -57,6 +62,7 @@ import {
 } from '@/components/editor/OverlayContextMenu'
 import {
   VideoPreview,
+  type VideoPreviewHandle,
   type StickerPreviewItem,
   type TextPreviewItem,
 } from '@/components/editor/VideoPreview'
@@ -64,6 +70,7 @@ import { EFFECT_PRESETS } from '@/data/effects'
 import { FILTER_PRESETS, getFilterCss } from '@/data/filters'
 import {
   createDefaultStickerOverlay,
+  createStickerId,
   getStickerPreset,
 } from '@/data/stickers'
 import { createDefaultTextOverlay } from '@/data/textStyles'
@@ -81,7 +88,12 @@ import {
 } from '@/utils/previewAudioMix'
 import { useToast } from '@/hooks/useToast'
 import { useUndoRedo } from '@/hooks/useUndoRedo'
-import type { EditorSnapshot, StickerOverlay, TextOverlay } from '@/types/editorState'
+import type {
+  DoodleStroke,
+  EditorSnapshot,
+  StickerOverlay,
+  TextOverlay,
+} from '@/types/editorState'
 import type { TimelineDisplayClip } from '@/types/timelineDisplay'
 import {
   bgmToDisplayClip,
@@ -122,6 +134,13 @@ import {
   shiftTimeRange,
   type TimeRange,
 } from '@/utils/timeRange'
+import { generateDoodleImage, storeDoodleAsset } from '@/api/doodle'
+import {
+  DEFAULT_DOODLE_PLACEMENT,
+  isolateFlatBackground,
+  resolveDoodlePlacement,
+} from '@/utils/doodleForeground'
+import type { DoodleBrushSettings } from '@/utils/animatedDoodle'
 
 type OverlayMenuTarget =
   | { kind: 'text'; id: string }
@@ -131,6 +150,42 @@ type OverlayMenuTarget =
 
 type LegacyEditorSnapshot = EditorSnapshot & {
   textOverlay?: TextOverlay | null
+}
+
+function loadImageElement(src: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const img = new Image()
+    img.crossOrigin = 'anonymous'
+    img.onload = () => resolve(img)
+    img.onerror = () => reject(new Error('图片读取失败'))
+    img.src = src
+  })
+}
+
+async function composeFrameAndDoodle(frameImage: string, doodleImage: string) {
+  const [frame, doodle] = await Promise.all([
+    loadImageElement(frameImage),
+    loadImageElement(doodleImage),
+  ])
+  const canvas = document.createElement('canvas')
+  canvas.width = frame.naturalWidth || 1280
+  canvas.height = frame.naturalHeight || 720
+  const ctx = canvas.getContext('2d')
+  if (!ctx) throw new Error('画布不可用')
+  ctx.drawImage(frame, 0, 0, canvas.width, canvas.height)
+  ctx.drawImage(doodle, 0, 0, canvas.width, canvas.height)
+  return canvas.toDataURL('image/jpeg', 0.88)
+}
+
+function buildDoodlePrompt(draft: MagicDoodleDraft) {
+  const base = draft.prompt.trim()
+  if (draft.mode === 'sticker') {
+    return `${base}。将参考涂鸦优化成清晰精致的 vlog 贴纸元素，主体居中完整，纯白背景，不添加文字。`
+  }
+  if (draft.mode === 'style') {
+    return `${base}。参考图由当前视频帧和手绘涂鸦组成，请保持原始构图，把画面统一转换为指定风格，人物主体自然清晰。`
+  }
+  return `${base}。将参考涂鸦生成适合叠加到动态视频上的独立前景元素，主体完整，纯白背景，不包含道路、天空或原视频背景，不添加文字。`
 }
 
 function ensureTextId(text: TextOverlay, index: number): TextOverlay {
@@ -239,7 +294,21 @@ function cloneOverlay(o: TextOverlay): TextOverlay {
 }
 
 function cloneSticker(o: StickerOverlay): StickerOverlay {
-  return overlayWithNormalizedRange({ ...o }, PROJECT_DURATION)
+  return overlayWithNormalizedRange(
+    {
+      ...o,
+      animatedDoodle: o.animatedDoodle
+        ? {
+            ...o.animatedDoodle,
+            strokes: o.animatedDoodle.strokes.map((stroke) => ({
+              ...stroke,
+              points: stroke.points.map((point) => ({ ...point })),
+            })),
+          }
+        : undefined,
+    },
+    PROJECT_DURATION,
+  )
 }
 
 function cloneStickers(stickers: StickerOverlay[]): StickerOverlay[] {
@@ -308,6 +377,18 @@ export function EditorPage() {
   const [titleDraft, setTitleDraft] = useState(snapshot.title)
   const [isEditingTitle, setIsEditingTitle] = useState(false)
   const [activeFeature, setActiveFeature] = useState<string | null>(null)
+  const [doodleGenerating, setDoodleGenerating] = useState(false)
+  const [doodleFramePreview, setDoodleFramePreview] = useState<string | null>(null)
+  const [doodleMode, setDoodleMode] = useState<MagicDoodleMode>('sticker')
+  const [doodleBrushSettings, setDoodleBrushSettings] = useState<DoodleBrushSettings>({
+    color: '#f59e0b',
+    size: 10,
+    erasing: false,
+  })
+  const [draftDoodleStrokes, setDraftDoodleStrokes] = useState<DoodleStroke[]>([])
+  const [doodleRecordingStartTime, setDoodleRecordingStartTime] = useState<number | null>(
+    null,
+  )
   const [activeTool, setActiveTool] = useState('cut')
   const [draftFilterId, setDraftFilterId] = useState(snapshot.filterId)
   const [draftIntensity, setDraftIntensity] = useState(snapshot.filterIntensity)
@@ -356,6 +437,7 @@ export function EditorPage() {
     startClientX: number
   } | null>(null)
   const clipboardRef = useRef<OverlayClipboard | null>(null)
+  const videoPreviewRef = useRef<VideoPreviewHandle>(null)
   const { message, show, visible } = useToast()
   const [exporting, setExporting] = useState(false)
   const [exportProgress, setExportProgress] = useState(0)
@@ -382,6 +464,7 @@ export function EditorPage() {
 
   const showFilterPanel = activeTool === 'filter'
   const showAudioPanel = activeTool === 'audio'
+  const showDoodlePanel = activeFeature === 'doodle'
   const showNarrationPanel = activeFeature === 'narration'
   const showEffectPanel = activeTool === 'effect'
   const showTextPanel = activeTool === 'text'
@@ -392,6 +475,7 @@ export function EditorPage() {
   const previewFilterId = showFilterPanel ? draftFilterId : appliedFilterId
   const previewIntensity = showFilterPanel ? draftIntensity : appliedIntensity
   const previewEffectId = showEffectPanel ? draftEffectId : appliedEffectId
+
   const previewKeepOriginalAudio = showAudioPanel
     ? draftKeepOriginalAudio
     : appliedKeepOriginalAudio
@@ -422,6 +506,37 @@ export function EditorPage() {
 
   const { currentTime, isPlaying, seek, syncTime, togglePlay, setIsPlaying } =
     usePlayback(projectDuration, 31, { videoClockRef: previewVideoClockRef })
+
+  useEffect(() => {
+    if (!showDoodlePanel || doodleMode === 'scene') {
+      setDoodleFramePreview(null)
+      return
+    }
+    let cancelled = false
+    void videoPreviewRef.current
+      ?.captureFrame({ width: 640, height: 360, includeFilter: true })
+      .then((image) => {
+        if (!cancelled) setDoodleFramePreview(image)
+      })
+      .catch(() => {
+        if (!cancelled) setDoodleFramePreview(null)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [showDoodlePanel, doodleMode, currentTime, previewFilterId, previewIntensity])
+
+  const resetDoodleRecording = useCallback(() => {
+    setDraftDoodleStrokes([])
+    setDoodleRecordingStartTime(null)
+  }, [])
+
+  useEffect(() => {
+    resetDoodleRecording()
+    if (showDoodlePanel && doodleMode === 'scene') {
+      setIsPlaying(false)
+    }
+  }, [doodleMode, resetDoodleRecording, setIsPlaying, showDoodlePanel])
 
   useEffect(() => {
     if (isPlaying) setHighlightFollowsPlayhead(true)
@@ -1295,6 +1410,171 @@ export function EditorPage() {
     return stickers
   }, [appliedStickers, liveSticker, selectedStickerId])
 
+  const handleDoodleGenerate = useCallback(
+    async (draft: MagicDoodleDraft) => {
+      if (draft.mode === 'scene') return
+      if (doodleGenerating) return
+      setDoodleGenerating(true)
+      try {
+        setIsPlaying(false)
+
+        const frameImage =
+          draft.mode === 'style'
+            ? await videoPreviewRef.current?.captureFrame({
+                width: 1280,
+                height: 720,
+                includeFilter: true,
+              })
+            : undefined
+        let image: string | undefined
+
+        if (draft.mode === 'style' && frameImage && draft.doodleImage) {
+          image = await composeFrameAndDoodle(frameImage, draft.doodleImage)
+        } else if (draft.mode === 'style') {
+          image = frameImage
+        } else {
+          image = draft.doodleImage ?? undefined
+        }
+
+        const result = await generateDoodleImage({
+          prompt: buildDoodlePrompt(draft),
+          image,
+          size: draft.size,
+        })
+
+        const range = createDefaultTimeRangeFromPlayhead(projectDuration, currentTime)
+        const fullFrame = draft.mode === 'style'
+        let imageUrl = result.imageUrl
+        let placement = DEFAULT_DOODLE_PLACEMENT
+        if (draft.mode === 'sticker') {
+          placement = await resolveDoodlePlacement(draft.doodleImage)
+          const foreground = await isolateFlatBackground(result.imageUrl).catch(() => null)
+          if (foreground) {
+            imageUrl = await storeDoodleAsset(foreground).catch(() => result.imageUrl)
+          }
+        }
+        const overlay: StickerOverlay = {
+          id: createStickerId(),
+          stickerId: 'magic-doodle',
+          imageUrl,
+          imageFit: fullFrame ? 'cover' : 'contain',
+          name: draft.mode === 'style' ? '魔法风格' : '魔法涂鸦',
+          x: fullFrame ? 50 : placement.x,
+          y: fullFrame ? 50 : placement.y,
+          width: fullFrame ? 100 : placement.width,
+          height: fullFrame ? 100 : placement.height,
+          rotation: 0,
+          startTime: range.startTime,
+          endTime: range.endTime,
+        }
+
+        pushEditorHistory({
+          stickerOverlays: [...syncStickersFromLive(), overlay],
+        })
+        setDraftSticker(null)
+        closeAllPanels()
+        setActiveFeature(null)
+        selectSticker(overlay)
+        show(result.storeWarning ? '魔法涂鸦已生成，远程图临时使用' : '魔法涂鸦已生成')
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : '请稍后重试'
+        show(`魔法涂鸦失败：${detail}`)
+      } finally {
+        setDoodleGenerating(false)
+      }
+    },
+    [
+      closeAllPanels,
+      currentTime,
+      doodleGenerating,
+      projectDuration,
+      pushEditorHistory,
+      selectSticker,
+      setIsPlaying,
+      show,
+      syncStickersFromLive,
+    ],
+  )
+
+  const handleDoodleRecordingStart = useCallback(() => {
+    const start = currentTime >= projectDuration - 0.1 ? 0 : currentTime
+    if (start !== currentTime) seek(start)
+    setDoodleRecordingStartTime((existing) => existing ?? start)
+    setIsPlaying(true)
+    return doodleRecordingStartTime ?? start
+  }, [
+    currentTime,
+    doodleRecordingStartTime,
+    projectDuration,
+    seek,
+    setIsPlaying,
+  ])
+
+  const handleConfirmRecordedDoodle = useCallback(() => {
+    if (!draftDoodleStrokes.length || doodleRecordingStartTime == null) return
+    setIsPlaying(false)
+
+    const timelineStart = Math.floor(doodleRecordingStartTime)
+    const recordingOffset = doodleRecordingStartTime - timelineStart
+    const strokes = draftDoodleStrokes.map((stroke) => ({
+      ...stroke,
+      points: stroke.points.map((point) => ({
+        ...point,
+        at: point.at + recordingOffset,
+      })),
+    }))
+    const drawDuration = strokes.reduce(
+      (latest, stroke) =>
+        Math.max(latest, ...stroke.points.map((point) => point.at)),
+      0,
+    )
+    const holdDuration = 0.6
+    const fadeDuration = 0.45
+    const endTime = Math.min(
+      Math.floor(projectDuration),
+      Math.max(timelineStart + 1, Math.ceil(timelineStart + drawDuration + holdDuration + fadeDuration)),
+    )
+    const overlay: StickerOverlay = {
+      id: createStickerId(),
+      stickerId: 'magic-doodle-drawing',
+      name: '动态涂鸦',
+      animatedDoodle: {
+        strokes,
+        drawDuration,
+        holdDuration,
+        fadeDuration,
+      },
+      x: 50,
+      y: 50,
+      width: 100,
+      height: 100,
+      rotation: 0,
+      startTime: timelineStart,
+      endTime,
+    }
+
+    pushEditorHistory({
+      stickerOverlays: [...syncStickersFromLive(), overlay],
+    })
+    resetDoodleRecording()
+    closeAllPanels()
+    setActiveFeature(null)
+    seek(timelineStart)
+    setIsPlaying(true)
+    show('动态涂鸦已添加，播放后自动淡出')
+  }, [
+    closeAllPanels,
+    doodleRecordingStartTime,
+    draftDoodleStrokes,
+    projectDuration,
+    pushEditorHistory,
+    resetDoodleRecording,
+    seek,
+    setIsPlaying,
+    show,
+    syncStickersFromLive,
+  ])
+
   const pasteFromClipboard = useCallback(() => {
     const clip = clipboardRef.current
     if (!clip) {
@@ -2001,11 +2281,20 @@ export function EditorPage() {
       openNarrationPanel()
       return
     }
+    if (id === 'doodle') {
+      if (activeFeature !== 'doodle') setIsPlaying(false)
+      setDoodleMode('sticker')
+      resetDoodleRecording()
+      setActiveFeature((prev) => (prev === 'doodle' ? null : 'doodle'))
+      closeAllPanels()
+      return
+    }
     setActiveFeature(id)
     show(editorToasts.featureDev(label))
   }
 
   const handleToolSelect = (id: string, _label: string) => {
+    if (showDoodlePanel) setActiveFeature(null)
     if (id === 'filter') {
       if (activeTool === 'filter') cancelFilterPanel()
       else openFilterPanel()
@@ -2103,7 +2392,7 @@ export function EditorPage() {
     setLiveSticker(null)
     closeAllPanels()
     if (draftSticker) {
-      const name = getStickerPreset(draftSticker.stickerId)?.name ?? '??'
+      const name = draftSticker.name ?? getStickerPreset(draftSticker.stickerId)?.name ?? '贴纸'
       show(editorToasts.stickerOn(name))
     }
   }
@@ -2395,6 +2684,7 @@ export function EditorPage() {
         className="flex min-h-0 flex-1 flex-col overflow-hidden"
       >
       <VideoPreview
+        ref={videoPreviewRef}
         poster={activeClip.poster}
         videoSrc={activeClip.videoSrc}
         clipTransform={previewClipTransform}
@@ -2430,6 +2720,17 @@ export function EditorPage() {
         onPreviewContextMenu={handlePreviewContextMenu}
         selectedTextId={selectedTextId}
         selectedStickerId={selectedStickerId}
+        doodleRecording={
+          showDoodlePanel && doodleMode === 'scene'
+            ? {
+                strokes: draftDoodleStrokes,
+                settings: doodleBrushSettings,
+                startTime: doodleRecordingStartTime,
+                onStart: handleDoodleRecordingStart,
+                onChange: setDraftDoodleStrokes,
+              }
+            : null
+        }
         onTextContextMenu={handleTextContextMenu}
         onStickerContextMenu={handleStickerContextMenu}
         onTogglePlay={togglePlay}
@@ -2589,6 +2890,24 @@ export function EditorPage() {
             onEnabledChange={setDraftNarrationEnabled}
             onConfirm={confirmNarrationPanel}
             onClose={cancelNarrationPanel}
+          />
+        )}
+
+        {showDoodlePanel && (
+          <MagicDoodlePanel
+            busy={doodleGenerating}
+            backgroundImage={doodleFramePreview}
+            brushSettings={doodleBrushSettings}
+            hasRecordedDoodle={draftDoodleStrokes.length > 0}
+            onGenerate={handleDoodleGenerate}
+            onModeChange={setDoodleMode}
+            onBrushSettingsChange={setDoodleBrushSettings}
+            onClearRecordedDoodle={resetDoodleRecording}
+            onConfirmRecordedDoodle={handleConfirmRecordedDoodle}
+            onClose={() => {
+              resetDoodleRecording()
+              setActiveFeature(null)
+            }}
           />
         )}
 

@@ -12,11 +12,12 @@ const narrationRouter = require('./routes/narration')
 const vlogRouter = require('./routes/vlog')
 const directorRouter = require('./routes/director')
 const musicRouter = require('./routes/music')
+const doodleRouter = require('./routes/doodle')
 
 const app = express()
 
 app.use(cors())
-app.use(express.json({ limit: '2mb' }))
+app.use(express.json({ limit: '15mb' }))
 
 app.use('/uploads', express.static(path.join(__dirname, '../uploads')))
 app.use('/exports', express.static(path.join(__dirname, '../exports')))
@@ -30,6 +31,7 @@ app.use('/api', narrationRouter)
 app.use('/api', vlogRouter)
 app.use('/api', directorRouter)
 app.use('/api', musicRouter)
+app.use('/api', doodleRouter)
 
 app.get('/', (req, res) => {
   res.json({

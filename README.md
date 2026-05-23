@@ -41,10 +41,30 @@ src/
 ## 本地运行
 
 ```bash
-cd memento-editor
 npm install
 npm run dev
 ```
+
+图片生成、旁白和导出接口由 `backend` 服务提供。首次运行服务端前，创建仅本地使用的配置文件并填写 vivo AIGC 凭证：
+
+```powershell
+Copy-Item backend/.env.example backend/.env
+cd backend
+npm install
+npm run dev
+```
+
+另开终端在项目根目录运行 `npm run dev`。开发服务器会将 `/api` 与 `/uploads` 代理到后端。
+
+## 魔法涂鸦
+
+剪辑页的「魔法涂鸦」支持：
+
+- `贴纸`：将手绘图层或文本描述发送至图片生成接口，并作为可移动贴纸叠加到时间轴。
+- `动态绘画`：直接在视频上用鼠标绘制，记录笔画过程并在回放/导出中逐笔呈现，绘制完成后自动淡出。
+- `风格`：使用当前帧与涂鸦作为参考，生成单帧风格化画面。
+
+服务端通过 `POST /api/doodle/generate` 代理调用 vivo `image_generation`，密钥仅从 `backend/.env` 的 `VIVO_AIGC_APP_KEY` 读取。当前没有向上游发送 `mask`，因此不提供仅修改指定涂抹区域的精确消除或扩图。
 
 ## 设计规范
 

@@ -1,4 +1,5 @@
 import { getStickerEmoji } from '@/data/stickers'
+import type { StickerOverlay } from '@/types/editorState'
 
 const TWEMOJI_BASE =
   'https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72'
@@ -11,7 +12,32 @@ function emojiToCodePoint(emoji: string) {
     .join('-')
 }
 
-export async function loadStickerImage(stickerId: string): Promise<HTMLImageElement | null> {
+function loadImageUrl(src: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const img = new Image()
+    img.crossOrigin = 'anonymous'
+    img.onload = () => resolve(img)
+    img.onerror = () => reject(new Error('load failed'))
+    img.src = src
+  })
+}
+
+export function getStickerImageKey(sticker: Pick<StickerOverlay, 'stickerId' | 'imageUrl'>) {
+  return sticker.imageUrl || sticker.stickerId
+}
+
+export async function loadStickerImage(
+  sticker: string | Pick<StickerOverlay, 'stickerId' | 'imageUrl'>,
+): Promise<HTMLImageElement | null> {
+  if (typeof sticker !== 'string' && sticker.imageUrl) {
+    try {
+      return await loadImageUrl(sticker.imageUrl)
+    } catch {
+      return null
+    }
+  }
+
+  const stickerId = typeof sticker === 'string' ? sticker : sticker.stickerId
   const emoji = getStickerEmoji(stickerId)
   const code = emojiToCodePoint(emoji)
   const urls = [
@@ -21,13 +47,7 @@ export async function loadStickerImage(stickerId: string): Promise<HTMLImageElem
 
   for (const url of urls) {
     try {
-      return await new Promise((resolve, reject) => {
-        const img = new Image()
-        img.crossOrigin = 'anonymous'
-        img.onload = () => resolve(img)
-        img.onerror = () => reject(new Error('load failed'))
-        img.src = url
-      })
+      return await loadImageUrl(url)
     } catch {
       // try next url
     }

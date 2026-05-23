@@ -1,5 +1,12 @@
 import { Maximize2, Minimize2, Pause, Play, X } from 'lucide-react'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import {
+  forwardRef,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useRef,
+  useState,
+} from 'react'
 import { ClipTransformLayer } from '@/components/editor/ClipTransformLayer'
 import { VideoCropOverlay } from '@/components/editor/VideoCropOverlay'
 import type { NormalizedCrop } from '@/types/clipTransform'
@@ -8,8 +15,14 @@ import { FilteredMedia } from '@/components/editor/FilteredMedia'
 import type { ClipTransform } from '@/types/clipTransform'
 import { VideoStickerOverlay } from '@/components/editor/VideoStickerOverlay'
 import { VideoTextOverlay } from '@/components/editor/VideoTextOverlay'
-import type { StickerOverlay, TextOverlay } from '@/types/editorState'
+import {
+  VideoDoodlePlaybackOverlay,
+  VideoDoodleRecordingOverlay,
+} from '@/components/editor/VideoDoodleOverlay'
+import type { DoodleStroke, StickerOverlay, TextOverlay } from '@/types/editorState'
+import type { DoodleBrushSettings } from '@/utils/animatedDoodle'
 import { EDITOR_PREVIEW_ATTR } from '@/utils/editorSelectionHitTest'
+import { drawClipMedia } from '@/utils/drawClipMedia'
 import { clamp, formatTime } from '@/utils/formatTime'
 import { isActiveAtTime } from '@/utils/timeRange'
 
@@ -21,6 +34,22 @@ export interface StickerPreviewItem {
 export interface TextPreviewItem {
   overlay: TextOverlay
   editable: boolean
+}
+
+export interface VideoPreviewHandle {
+  captureFrame: (options?: {
+    width?: number
+    height?: number
+    includeFilter?: boolean
+  }) => Promise<string>
+}
+
+export interface DoodleRecordingPreview {
+  strokes: DoodleStroke[]
+  settings: DoodleBrushSettings
+  startTime: number | null
+  onStart: () => number
+  onChange: (strokes: DoodleStroke[]) => void
 }
 
 interface VideoPreviewProps {
@@ -57,6 +86,7 @@ interface VideoPreviewProps {
   onPreviewContextMenu?: (e: React.MouseEvent) => void
   selectedTextId?: string | null
   selectedStickerId?: string | null
+  doodleRecording?: DoodleRecordingPreview | null
   onTogglePlay: () => void
   onSeek: (ratio: number) => void
   isCropMode?: boolean
@@ -70,7 +100,17 @@ interface VideoPreviewProps {
   previewVolume?: number
 }
 
-export function VideoPreview({
+function loadPreviewImage(src: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const img = new Image()
+    img.crossOrigin = 'anonymous'
+    img.onload = () => resolve(img)
+    img.onerror = () => reject(new Error('preview image load failed'))
+    img.src = src
+  })
+}
+
+export const VideoPreview = forwardRef<VideoPreviewHandle, VideoPreviewProps>(function VideoPreview({
   poster,
   videoSrc,
   clipTransform,
@@ -99,6 +139,7 @@ export function VideoPreview({
   onPreviewContextMenu,
   selectedTextId = null,
   selectedStickerId = null,
+  doodleRecording = null,
   onTogglePlay,
   onSeek,
   isCropMode = false,
@@ -109,7 +150,7 @@ export function VideoPreview({
   onSourceAspectChange,
   previewMuted = false,
   previewVolume = 1,
-}: VideoPreviewProps) {
+}: VideoPreviewProps, ref) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const lastVideoSrcRef = useRef<string | undefined>(undefined)
   const progressRef = useRef<HTMLDivElement>(null)
@@ -120,6 +161,42 @@ export function VideoPreview({
   const [nativeFullscreen, setNativeFullscreen] = useState(false)
   const isExpanded = overlayExpanded || nativeFullscreen
   const progress = duration > 0 ? clamp(currentTime / duration, 0, 1) : 0
+
+  const captureFrame = useCallback(
+    async (options: { width?: number; height?: number; includeFilter?: boolean } = {}) => {
+      const width = options.width ?? 1280
+      const height = options.height ?? 720
+      const canvas = document.createElement('canvas')
+      canvas.width = width
+      canvas.height = height
+      const ctx = canvas.getContext('2d')
+      if (!ctx) throw new Error('canvas unavailable')
+
+      ctx.fillStyle = '#000'
+      ctx.fillRect(0, 0, width, height)
+
+      const video = videoRef.current
+      const source =
+        videoSrc && video && video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA
+          ? video
+          : await loadPreviewImage(poster)
+
+      drawClipMedia(ctx, source, width, height, clipTransform)
+
+      if (options.includeFilter && filterCss !== 'none' && filterIntensity > 0) {
+        ctx.save()
+        ctx.globalAlpha = Math.max(0, Math.min(100, filterIntensity)) / 100
+        ctx.filter = filterCss
+        drawClipMedia(ctx, source, width, height, clipTransform)
+        ctx.restore()
+      }
+
+      return canvas.toDataURL('image/jpeg', 0.88)
+    },
+    [clipTransform, filterCss, filterIntensity, poster, videoSrc],
+  )
+
+  useImperativeHandle(ref, () => ({ captureFrame }), [captureFrame])
 
   const exitExpanded = useCallback(async () => {
     if (document.fullscreenElement) {
@@ -296,9 +373,12 @@ export function VideoPreview({
     ({ overlay }) =>
       overlay.content.trim() && isActiveAtTime(currentTime, overlay),
   )
-  const visibleStickers = stickerItems.filter(({ overlay }) =>
-    isActiveAtTime(currentTime, overlay),
-  )
+  const visibleStickers = stickerItems.filter(({ overlay }) => {
+    if (overlay.animatedDoodle) {
+      return currentTime >= overlay.startTime && currentTime <= overlay.endTime
+    }
+    return isActiveAtTime(currentTime, overlay)
+  })
 
   const handleProgressPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     e.preventDefault()
@@ -413,28 +493,49 @@ export function VideoPreview({
             />
           ))}
 
-          {visibleStickers.map(({ overlay, editable }) => (
-            <VideoStickerOverlay
-              key={overlay.id}
-              overlay={overlay}
-              editable={editable}
-              selected={editable || selectedStickerId === overlay.id}
-              onChange={
-                editable && onStickerChange
-                  ? (patch) => onStickerChange(overlay.id, patch)
-                  : undefined
-              }
-              onTransformEnd={editable ? onStickerTransformEnd : undefined}
-              onActivate={
-                onStickerActivate ? () => onStickerActivate(overlay.id) : undefined
-              }
-              onContextMenu={
-                onStickerContextMenu
-                  ? (e) => onStickerContextMenu(e, overlay.id)
-                  : undefined
-              }
+          {visibleStickers.map(({ overlay, editable }) =>
+            overlay.animatedDoodle ? (
+              <VideoDoodlePlaybackOverlay
+                key={overlay.id}
+                animation={overlay.animatedDoodle}
+                currentTime={currentTime}
+                startTime={overlay.startTime}
+              />
+            ) : (
+              <VideoStickerOverlay
+                key={overlay.id}
+                overlay={overlay}
+                editable={editable}
+                selected={editable || selectedStickerId === overlay.id}
+                onChange={
+                  editable && onStickerChange
+                    ? (patch) => onStickerChange(overlay.id, patch)
+                    : undefined
+                }
+                onTransformEnd={editable ? onStickerTransformEnd : undefined}
+                onActivate={
+                  onStickerActivate ? () => onStickerActivate(overlay.id) : undefined
+                }
+                onContextMenu={
+                  onStickerContextMenu
+                    ? (e) => onStickerContextMenu(e, overlay.id)
+                    : undefined
+                }
+              />
+            ),
+          )}
+
+          {doodleRecording && (
+            <VideoDoodleRecordingOverlay
+              strokes={doodleRecording.strokes}
+              settings={doodleRecording.settings}
+              currentTime={currentTime}
+              recordingStartTime={doodleRecording.startTime}
+              isPlaying={isPlaying}
+              onRecordingStart={doodleRecording.onStart}
+              onStrokesChange={doodleRecording.onChange}
             />
-          ))}
+          )}
 
           </div>
 
@@ -505,4 +606,4 @@ export function VideoPreview({
       </div>
     </section>
   )
-}
+})
