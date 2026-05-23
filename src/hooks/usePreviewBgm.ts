@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { getBgmPlayUrls } from '@/utils/bgmLoader'
+import { getNarrationAudioUrl } from '@/state/narrationAudio'
 import { isActiveAtTime, type TimeRange } from '@/utils/timeRange'
 
 interface UsePreviewBgmOptions {
@@ -9,6 +10,7 @@ interface UsePreviewBgmOptions {
   isPlaying: boolean
   /** 配乐轨音量 0–1 */
   volume: number
+  narrationActive?: boolean
 }
 
 function loadBgmElement(
@@ -51,9 +53,12 @@ export function usePreviewBgm({
   currentTime,
   isPlaying,
   volume,
+  narrationActive = false,
 }: UsePreviewBgmOptions) {
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const loadedIdRef = useRef<string | null>(null)
+  const narrationRef = useRef<HTMLAudioElement | null>(null)
+  const narrationStartedRef = useRef(false)
 
   useEffect(() => {
     const audio = audioRef.current ?? new Audio()
@@ -131,14 +136,69 @@ export function usePreviewBgm({
   }, [bgmId, bgmRange, currentTime, isPlaying, volume])
 
   useEffect(() => {
+    const narrationUrl = getNarrationAudioUrl()
+    const narration = narrationRef.current ?? new Audio()
+    narrationRef.current = narration
+    narration.loop = false
+    narration.preload = 'auto'
+
+    if (!narrationActive || !narrationUrl) {
+      narration.pause()
+      narration.removeAttribute('src')
+      narrationStartedRef.current = false
+      return
+    }
+
+    if (narration.src !== narrationUrl) {
+      narration.src = narrationUrl
+      narration.load()
+      narrationStartedRef.current = false
+    }
+
+    if (!isPlaying) {
+      narration.pause()
+      return
+    }
+
+    const startNarration = async () => {
+      narration.muted = false
+      narration.volume = 1
+      try {
+        await narration.play()
+      } catch {
+        try {
+          narration.muted = true
+          await narration.play()
+          narration.muted = false
+          narration.volume = 1
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+
+    if (!narrationStartedRef.current) {
+      narrationStartedRef.current = true
+      void startNarration()
+    }
+  }, [isPlaying, narrationActive, currentTime])
+
+  useEffect(() => {
     return () => {
       const audio = audioRef.current
       if (audio) {
         audio.pause()
         audio.removeAttribute('src')
       }
+      const narration = narrationRef.current
+      if (narration) {
+        narration.pause()
+        narration.removeAttribute('src')
+      }
       audioRef.current = null
+      narrationRef.current = null
       loadedIdRef.current = null
+      narrationStartedRef.current = false
     }
   }, [])
 }

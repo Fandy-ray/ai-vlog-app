@@ -442,6 +442,8 @@ export function EditorPage() {
     () => getPreviewVideoVolume(previewKeepOriginalAudio, previewMixWithBgm),
     [previewKeepOriginalAudio, previewMixWithBgm],
   )
+  const previewNarrationActive =
+    showNarrationPanel ? draftNarrationEnabled : appliedNarrationEnabled
 
   usePreviewBgm({
     bgmId: previewBgmId,
@@ -449,6 +451,7 @@ export function EditorPage() {
     currentTime,
     isPlaying,
     volume: previewBgmVolume,
+    narrationActive: previewNarrationActive,
   })
 
   const pushEditorHistory = useCallback(
