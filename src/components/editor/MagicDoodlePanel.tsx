@@ -1,7 +1,9 @@
 import { Check, Eraser, Paintbrush, Sparkles, Trash2, X } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { EditorToolPanelShell } from '@/components/editor/EditorToolPanelShell'
+import { TimeRangeInputs } from '@/components/editor/TimeRangeInputs'
 import type { DoodleBrushSettings } from '@/utils/animatedDoodle'
+import type { TimeRange } from '@/utils/timeRange'
 
 export type MagicDoodleMode = 'sticker' | 'scene' | 'style'
 
@@ -11,6 +13,7 @@ export interface MagicDoodleDraft {
   size: string
   doodleImage: string | null
   hasDoodle: boolean
+  range: TimeRange
 }
 
 interface MagicDoodlePanelProps {
@@ -18,9 +21,12 @@ interface MagicDoodlePanelProps {
   backgroundImage?: string | null
   brushSettings: DoodleBrushSettings
   hasRecordedDoodle: boolean
+  range: TimeRange
+  videoDuration: number
   onGenerate: (draft: MagicDoodleDraft) => void
   onModeChange: (mode: MagicDoodleMode) => void
   onBrushSettingsChange: (settings: DoodleBrushSettings) => void
+  onRangeChange: (range: TimeRange) => void
   onClearRecordedDoodle: () => void
   onConfirmRecordedDoodle: () => void
   onClose: () => void
@@ -49,9 +55,12 @@ export function MagicDoodlePanel({
   backgroundImage = null,
   brushSettings,
   hasRecordedDoodle,
+  range,
+  videoDuration,
   onGenerate,
   onModeChange,
   onBrushSettingsChange,
+  onRangeChange,
   onClearRecordedDoodle,
   onConfirmRecordedDoodle,
   onClose,
@@ -64,6 +73,8 @@ export function MagicDoodlePanel({
   const [size, setSize] = useState(SIZES[0])
   const [hasDoodle, setHasDoodle] = useState(false)
   const interactive = mode === 'scene'
+  const hasGenerationInput = hasDoodle || Boolean(prompt.trim())
+  const canConfirm = interactive ? hasRecordedDoodle : hasGenerationInput
 
   useEffect(() => {
     onModeChange(mode)
@@ -143,15 +154,25 @@ export function MagicDoodlePanel({
   }
 
   const handleGenerate = () => {
+    if (busy) return
     if (interactive) {
       onConfirmRecordedDoodle()
       return
     }
     const trimmed = prompt.trim()
-    if (!trimmed || busy) return
+    if (!hasGenerationInput) return
     const canvas = canvasRef.current
     const doodleImage = canvas && hasDoodle ? canvas.toDataURL('image/png') : null
-    onGenerate({ prompt: trimmed, mode, size, doodleImage, hasDoodle })
+    const fallbackPrompt =
+      mode === 'style' ? '将手绘区域转换为自然统一的画面风格' : '将手绘内容生成精致贴纸'
+    onGenerate({
+      prompt: trimmed || fallbackPrompt,
+      mode,
+      size,
+      doodleImage,
+      hasDoodle,
+      range,
+    })
   }
 
   return (
@@ -171,9 +192,9 @@ export function MagicDoodlePanel({
           <button
             type="button"
             onClick={handleGenerate}
-            disabled={(interactive ? !hasRecordedDoodle : !prompt.trim()) || busy}
+            disabled={!canConfirm || busy}
             className="flex h-8 w-8 items-center justify-center rounded-full bg-primary text-white shadow-[var(--shadow-soft)] transition-all hover:bg-primary-dark active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
-            aria-label="生成"
+            aria-label={interactive ? '保存动态绘画' : '生成魔法涂鸦'}
           >
             {busy ? <Sparkles size={16} /> : <Check size={18} strokeWidth={2.5} />}
           </button>
@@ -190,9 +211,14 @@ export function MagicDoodlePanel({
     >
       <div className="space-y-3 px-4 pb-4">
         {interactive ? (
-          <div className="rounded-[var(--radius-md)] bg-primary/5 px-3 py-2.5 text-xs leading-5 text-text-secondary ring-1 ring-primary/10">
-            请直接在上方视频画面拖动鼠标绘制。第一笔开始播放并记录笔迹，保存后会按绘制速度回放，完成后自动淡出。
-          </div>
+          <>
+            <div className="rounded-[var(--radius-md)] bg-primary/5 px-3 py-2.5 text-xs leading-5 text-text-secondary ring-1 ring-primary/10">
+              请直接在上方视频画面拖动鼠标绘制。第一笔开始播放并记录笔迹，保存后会按绘制速度回放，完成后自动淡出。
+            </div>
+            <p className="text-[10px] leading-4 text-text-muted">
+              保存后会创建“涂鸦 · 动态手绘”时间轴轨道，可拖动或调整两端控制出现时间。
+            </p>
+          </>
         ) : (
           <div className="relative aspect-video overflow-hidden rounded-[var(--radius-md)] bg-zinc-950 ring-1 ring-border">
             {backgroundImage && (
@@ -308,7 +334,11 @@ export function MagicDoodlePanel({
               onChange={(e) => setPrompt(e.target.value)}
               rows={2}
               className="w-full resize-none rounded-[var(--radius-md)] border border-border bg-bg px-3 py-2 text-xs leading-5 text-text outline-none transition-colors placeholder:text-text-muted focus:border-primary"
-              placeholder="请输入你想要的贴纸"
+              placeholder={
+                mode === 'style'
+                  ? '描述希望呈现的画面风格，也可直接在画面上绘制'
+                  : '描述想要的贴纸，也可直接在画面上绘制'
+              }
               maxLength={220}
             />
 
@@ -339,6 +369,21 @@ export function MagicDoodlePanel({
                 </button>
               ))}
             </div>
+
+            <section className="border-t border-border/50 pt-3">
+              <span className="mb-2 block text-xs font-medium text-text">存在时间范围</span>
+              <TimeRangeInputs
+                range={range}
+                videoDuration={videoDuration}
+                onChange={onRangeChange}
+                disabled={!hasGenerationInput || busy}
+              />
+              {!hasGenerationInput && (
+                <p className="mt-1.5 text-[10px] text-text-muted">
+                  请先输入描述或绘制内容后再设置时间范围
+                </p>
+              )}
+            </section>
           </>
         )}
       </div>
