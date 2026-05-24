@@ -3,6 +3,7 @@
 export type ProjectFlow = 'studio' | 'director'
 
 export const STUDIO_EXPORT_RESULT_KEY = 'memento-studio-export-result'
+export const LAST_COMPLETE_FLOW_KEY = 'memento-last-complete-flow'
 
 export interface StudioExportResult {
   title: string

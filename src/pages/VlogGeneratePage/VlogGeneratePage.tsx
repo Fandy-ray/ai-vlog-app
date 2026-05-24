@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { checkBackendHealth, generateVlogFromClips } from '@/api/vlogGenerate'
 import { AiGenerationStudio } from '@/components/AiGenerationStudio/AiGenerationStudio'
+import { LAST_COMPLETE_FLOW_KEY } from '@/constants/projectFlow'
 import { AI_GENERATION_STEPS } from '@/data/aiGenerationSteps'
 import type { VlogGenerateManifest } from '@/types/vlogGenerate'
 import { VLOG_GENERATE_RESULT_KEY } from '@/types/vlogGenerate'
@@ -81,6 +82,7 @@ export function VlogGeneratePage() {
         setProgress(100)
 
         sessionStorage.setItem(VLOG_GENERATE_RESULT_KEY, JSON.stringify(result))
+        sessionStorage.setItem(LAST_COMPLETE_FLOW_KEY, 'director')
         sessionStorage.setItem(
           'memento-vlog-generate-manifest',
           JSON.stringify(state.manifest),

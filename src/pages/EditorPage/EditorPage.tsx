@@ -18,6 +18,7 @@ import {
   updateEditorProject,
 } from '@/state/importedProject'
 import {
+  LAST_COMPLETE_FLOW_KEY,
   STUDIO_EXPORT_RESULT_KEY,
   type StudioExportResult,
 } from '@/constants/projectFlow'
@@ -560,6 +561,8 @@ export function EditorPage() {
     () => getPreviewVideoVolume(previewKeepOriginalAudio, previewMixWithBgm),
     [previewKeepOriginalAudio, previewMixWithBgm],
   )
+  const previewNarrationActive =
+    showNarrationPanel ? draftNarrationEnabled : appliedNarrationEnabled
 
   usePreviewBgm({
     bgmId: previewBgmId,
@@ -567,6 +570,7 @@ export function EditorPage() {
     currentTime,
     isPlaying,
     volume: previewBgmVolume,
+    narrationActive: previewNarrationActive,
   })
 
   const pushEditorHistory = useCallback(
@@ -2566,6 +2570,7 @@ export function EditorPage() {
           STUDIO_EXPORT_RESULT_KEY,
           JSON.stringify(studioPayload),
         )
+        sessionStorage.setItem(LAST_COMPLETE_FLOW_KEY, 'studio')
       } catch {
         /* ignore quota */
       }

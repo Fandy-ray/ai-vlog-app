@@ -4,11 +4,29 @@ interface FilterIntensityControlProps {
   onChange: (value: number) => void
 }
 
+function sliderToIntensity(value: number) {
+  const x = Math.max(0, Math.min(100, value)) / 100
+  const eased = x < 0.5
+    ? 4 * x * x * x
+    : 1 - Math.pow(-2 * x + 2, 3) / 2
+  return Math.round(eased * 100)
+}
+
+function intensityToSlider(value: number) {
+  const x = Math.max(0, Math.min(100, value)) / 100
+  const eased = x < 0.5
+    ? Math.cbrt(x / 4)
+    : 1 - Math.cbrt((1 - x) / 4)
+  return Math.round(eased * 100)
+}
+
 export function FilterIntensityControl({
   filterName,
   intensity,
   onChange,
 }: FilterIntensityControlProps) {
+  const sliderValue = intensityToSlider(intensity)
+
   return (
     <article className="mx-4 mb-3 animate-slide-up rounded-[var(--radius-lg)] border border-primary/15 bg-bg px-4 py-3 shadow-[var(--shadow-card)]">
       <header className="mb-3 flex items-center justify-between">
@@ -26,9 +44,9 @@ export function FilterIntensityControl({
           min={0}
           max={100}
           step={1}
-          value={intensity}
-          onChange={(e) => onChange(Number(e.target.value))}
-          style={{ '--slider-progress': `${intensity}%` } as React.CSSProperties}
+          value={sliderValue}
+          onChange={(e) => onChange(sliderToIntensity(Number(e.target.value)))}
+          style={{ '--slider-progress': `${sliderValue}%` } as React.CSSProperties}
           className="filter-intensity-slider h-1.5 min-w-0 flex-1 cursor-pointer appearance-none rounded-full"
           aria-label="调节滤镜强度"
           aria-valuemin={0}

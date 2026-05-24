@@ -1,4 +1,4 @@
-import { useEffect, useRef, type RefObject } from 'react'
+import type { RefObject } from 'react'
 
 interface FilteredMediaProps {
   src: string
@@ -14,7 +14,22 @@ interface FilteredMediaProps {
   muted?: boolean
 }
 
-/** 双层叠加：底层原图/视频 + 顶层滤镜，通过透明度控制强度 */
+function scaleFilterCss(filterCss: string, intensity: number): string {
+  const ratio = Math.max(0, Math.min(100, intensity)) / 100
+  if (filterCss === 'none' || ratio === 0) return 'none'
+
+  return filterCss.replace(
+    /([a-z-]+)\(([-\d.]+)(deg)?\)/g,
+    (_match, operation: string, rawValue: string, unit?: string) => {
+      const value = Number(rawValue)
+      const neutral = ['brightness', 'contrast', 'saturate'].includes(operation) ? 1 : 0
+      const scaled = neutral + (value - neutral) * ratio
+      return `${operation}(${Number(scaled.toFixed(4))}${unit ?? ''})`
+    },
+  )
+}
+
+/** 单层滤镜保持视频同步，同时按强度将滤镜参数向原图状态插值。 */
 export function FilteredMedia({
   src,
   alt = '',
@@ -26,42 +41,9 @@ export function FilteredMedia({
   videoRef,
   muted = true,
 }: FilteredMediaProps) {
-  const opacity = Math.max(0, Math.min(100, intensity)) / 100
-  const showFilter = filterCss !== 'none' && opacity > 0
   const mediaClass = `h-full w-full object-${objectFit}`
-  const filterVideoRef = useRef<HTMLVideoElement>(null)
-
-  useEffect(() => {
-    const main = videoRef?.current
-    const overlay = filterVideoRef.current
-    if (!main || !overlay || !videoSrc || !showFilter) return
-
-    const attachStream = () => {
-      const capture = (
-        main as HTMLVideoElement & {
-          captureStream?: () => MediaStream
-        }
-      ).captureStream
-      if (typeof capture !== 'function') return false
-      try {
-        overlay.srcObject = capture.call(main)
-        return true
-      } catch {
-        return false
-      }
-    }
-
-    if (attachStream()) {
-      return () => {
-        overlay.srcObject = null
-      }
-    }
-
-    overlay.src = videoSrc
-    return () => {
-      overlay.removeAttribute('src')
-    }
-  }, [videoRef, videoSrc, showFilter])
+  const appliedFilter = scaleFilterCss(filterCss, intensity)
+  const mediaStyle = appliedFilter === 'none' ? undefined : { filter: appliedFilter }
 
   return (
     <span className={`relative block overflow-hidden ${className}`}>
@@ -70,31 +52,19 @@ export function FilteredMedia({
           ref={videoRef}
           src={videoSrc}
           className={mediaClass}
+          style={mediaStyle}
           muted={muted}
           playsInline
           preload="auto"
         />
       ) : (
-        <img src={src} alt={alt} className={mediaClass} draggable={false} />
-      )}
-      {showFilter && (
-        <span
-          className="pointer-events-none absolute inset-0 transition-opacity duration-150"
-          style={{ filter: filterCss, opacity }}
-          aria-hidden
-        >
-          {videoSrc ? (
-            <video
-              ref={filterVideoRef}
-              className={mediaClass}
-              muted
-              playsInline
-              preload="none"
-            />
-          ) : (
-            <img src={src} alt="" className={mediaClass} draggable={false} />
-          )}
-        </span>
+        <img
+          src={src}
+          alt={alt}
+          className={mediaClass}
+          style={mediaStyle}
+          draggable={false}
+        />
       )}
     </span>
   )

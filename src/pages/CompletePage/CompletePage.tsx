@@ -6,6 +6,7 @@ import {
   Play,
   RefreshCw,
   Sparkles,
+  Flower2,
   Wand2,
 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -14,6 +15,7 @@ import { Button } from '@/components/Button'
 import { PageShell } from '@/components/PageShell'
 import { Toast } from '@/components/Toast'
 import {
+  LAST_COMPLETE_FLOW_KEY,
   STUDIO_EXPORT_RESULT_KEY,
   type ProjectFlow,
   type StudioExportResult,
@@ -78,6 +80,13 @@ function resolvePageFlow(locationState: unknown): ProjectFlow {
   const fromState = (locationState as { flow?: ProjectFlow })?.flow
   if (fromState === 'studio' || fromState === 'director') return fromState
   try {
+    const lastFlow = sessionStorage.getItem(LAST_COMPLETE_FLOW_KEY)
+    if (lastFlow === 'studio' && sessionStorage.getItem(STUDIO_EXPORT_RESULT_KEY)) {
+      return 'studio'
+    }
+    if (lastFlow === 'director' && sessionStorage.getItem(VLOG_GENERATE_RESULT_KEY)) {
+      return 'director'
+    }
     if (sessionStorage.getItem(STUDIO_EXPORT_RESULT_KEY)) return 'studio'
     if (sessionStorage.getItem(VLOG_GENERATE_RESULT_KEY)) return 'director'
   } catch {
@@ -255,89 +264,94 @@ export function CompletePage() {
       </header>
 
       <section className="flex-1 px-4 pb-4">
-        <article className="relative mb-5 overflow-hidden rounded-[var(--radius-2xl)] bg-black shadow-[var(--shadow-card)]">
-          {videoUrl && !videoError ? (
-            <video
-              ref={videoRef}
-              key={videoUrl}
-              src={videoUrl}
-              playsInline
-              muted={false}
-              controls
-              preload="metadata"
-              className="aspect-[9/16] max-h-[min(70vh,520px)] w-full bg-black object-contain"
-              onEnded={() => setPlaying(false)}
-              onError={() => setVideoError(true)}
-            />
-          ) : (
-            <img
-              src={coverUrl}
-              alt={title}
-              className="aspect-video w-full object-cover"
-              draggable={false}
-            />
-          )}
-          {videoError && (
-            <div className="absolute inset-0 flex items-center justify-center bg-black/80 px-4 text-center">
-              <p className="text-xs text-white/90">
-                预览加载失败。请点下方「保存相册」，在系统分享里选「存储视频」查看。
-              </p>
-            </div>
-          )}
-          {!videoError && (
-            <span
-              className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-transparent"
-              aria-hidden
-            />
-          )}
+        <h2 className="mb-3 text-left text-[18px] font-semibold text-text">
+          {title}
+        </h2>
 
-          {isDirector && generated?.effects && !videoError && (
-            <div className="absolute left-3 top-3 z-20 flex flex-wrap gap-1.5">
-              <span className="rounded-full bg-black/50 px-2 py-0.5 text-[9px] text-white/90 backdrop-blur">
-                {generated.effects.transition} 转场
-              </span>
-              <span className="rounded-full bg-black/50 px-2 py-0.5 text-[9px] text-white/90 backdrop-blur">
-                {generated.effects.colorGrade} 调色
-              </span>
-            </div>
-          )}
-
-          {videoUrl && !videoError && (
-            <button
-              type="button"
-              onClick={togglePlay}
-              className="absolute left-1/2 top-1/2 z-10 flex h-14 w-14 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-black/40 text-white backdrop-blur-md transition-transform active:scale-90"
-              aria-label={playing ? '暂停' : '播放'}
-            >
-              {playing ? (
-                <Pause size={24} fill="white" />
-              ) : (
-                <Play size={24} fill="white" className="ml-1" />
-              )}
-            </button>
-          )}
-
-          <div className="pointer-events-none absolute inset-x-0 bottom-0 p-4">
-            <h2 className="text-lg font-bold text-white drop-shadow">{title}</h2>
-            {narration && (
-              <p className="mt-1 line-clamp-2 text-xs text-white/90 drop-shadow">
-                {narration}
-              </p>
+        <article className="relative mb-5 overflow-hidden rounded-[28px] bg-black shadow-[var(--shadow-card)]">
+          <div className="relative aspect-[16/10] w-full bg-black sm:aspect-[16/9]">
+            {videoUrl && !videoError ? (
+              <video
+                ref={videoRef}
+                key={videoUrl}
+                src={videoUrl}
+                playsInline
+                muted={false}
+                controls
+                preload="metadata"
+                className="h-full w-full object-cover"
+                onEnded={() => setPlaying(false)}
+                onError={() => setVideoError(true)}
+              />
+            ) : (
+              <img
+                src={coverUrl}
+                alt={title}
+                className="h-full w-full object-cover"
+                draggable={false}
+              />
             )}
-            {isDirector && generated?.ai?.stitchNote && (
-              <p className="mt-1 text-[10px] text-white/70">{generated.ai.stitchNote}</p>
-            )}
-            {videoUrl && !videoError && (
-              <div className="mt-2 flex items-center gap-2">
-                <span className="h-1 flex-1 overflow-hidden rounded-full bg-white/30">
-                  <span
-                    className="block h-full rounded-full bg-white transition-all"
-                    style={{ width: `${progress * 100}%` }}
-                  />
-                </span>
-                <span className="text-xs tabular-nums text-white/80">{durationLabel}</span>
+            {videoError && (
+              <div className="absolute inset-0 flex items-center justify-center bg-black/80 px-4 text-center">
+                <p className="text-xs text-white/90">
+                  预览加载失败。请点下方「保存相册」，在系统分享里选「存储视频」查看。
+                </p>
               </div>
             )}
+            {!videoError && (
+              <span
+                className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/35 via-transparent to-transparent"
+                aria-hidden
+              />
+            )}
+
+            {isDirector && generated?.effects && !videoError && (
+              <div className="absolute left-3 top-3 z-20 flex flex-wrap gap-1.5">
+                <span className="rounded-full bg-black/50 px-2 py-0.5 text-[9px] text-white/90 backdrop-blur">
+                  {generated.effects.transition} 转场
+                </span>
+                <span className="rounded-full bg-black/50 px-2 py-0.5 text-[9px] text-white/90 backdrop-blur">
+                  {generated.effects.colorGrade} 调色
+                </span>
+              </div>
+            )}
+
+            {videoUrl && !videoError && (
+              <button
+                type="button"
+                onClick={togglePlay}
+                className="absolute left-1/2 top-1/2 z-10 flex h-14 w-14 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-black/40 text-white backdrop-blur-md transition-transform active:scale-90"
+                aria-label={playing ? '暂停' : '播放'}
+              >
+                {playing ? (
+                  <Pause size={24} fill="white" />
+                ) : (
+                  <Play size={24} fill="white" className="ml-1" />
+                )}
+              </button>
+            )}
+
+            <div className="pointer-events-none absolute bottom-4 left-4 right-4">
+              {narration && (
+                <p className="line-clamp-2 text-sm font-semibold text-white drop-shadow">
+                  {narration}
+                </p>
+              )}
+              {isDirector && generated?.ai?.stitchNote && (
+                <p className="mt-1 text-[10px] text-white/70">{generated.ai.stitchNote}</p>
+              )}
+              {videoUrl && !videoError && (
+                <div className="mt-2 flex items-center gap-2">
+                  <span className="h-1 flex-1 overflow-hidden rounded-full bg-white/30">
+                    <span
+                      className="block h-full rounded-full bg-white transition-all"
+                      style={{ width: `${progress * 100}%` }}
+                    />
+                  </span>
+                  <span className="text-xs tabular-nums text-white/80">{durationLabel}</span>
+                </div>
+              )}
+            </div>
           </div>
         </article>
 
@@ -352,20 +366,20 @@ export function CompletePage() {
             {generated.director.storyArc && (
               <ul className="mt-2 space-y-1 text-[10px] leading-relaxed text-text-secondary">
                 {generated.director.storyArc.opening && (
-                  <li>开场 — {generated.director.storyArc.opening}</li>
+                  <li>开场 - {generated.director.storyArc.opening}</li>
                 )}
                 {generated.director.storyArc.climax && (
-                  <li>高潮 — {generated.director.storyArc.climax}</li>
+                  <li>高潮 - {generated.director.storyArc.climax}</li>
                 )}
                 {generated.director.storyArc.resolve && (
-                  <li>收束 — {generated.director.storyArc.resolve}</li>
+                  <li>收束 - {generated.director.storyArc.resolve}</li>
                 )}
               </ul>
             )}
             {generated.director.chapters?.length ? (
               <p className="mt-2 text-[10px] text-text-muted">
                 情绪章节：
-                {generated.director.chapters.map((c) => c.name || c.mood).join(' → ')}
+                {generated.director.chapters.map((c) => c.name || c.mood).join(' / ')}
               </p>
             ) : null}
           </section>
@@ -458,7 +472,7 @@ export function CompletePage() {
           </p>
         )}
 
-        <section className="mb-8 flex flex-col gap-3">
+        <section className="grid grid-cols-2 gap-3">
           <Button
             variant="accent"
             size="lg"
@@ -466,28 +480,41 @@ export function CompletePage() {
             icon={<Download size={18} />}
             disabled={!videoUrl || saving}
             onClick={handleSaveClick}
+            className="h-12 rounded-2xl"
           >
-            {saving ? '导出中…' : '导出视频'}
+            {saving ? '下载中…' : '下载成片'}
           </Button>
-
+          <Button
+            variant="outline"
+            size="lg"
+            fullWidth
+            icon={<span className="text-lg leading-none">↗</span>}
+            disabled={!videoUrl}
+            onClick={handleSaveClick}
+            className="h-12 rounded-2xl bg-white text-text shadow-sm"
+          >
+            分享
+          </Button>
           {isDirector ? (
             <>
               <Button
-                variant="outline"
+                variant="soft"
                 size="lg"
                 fullWidth
                 icon={<RefreshCw size={18} />}
                 disabled={regenerating}
                 onClick={() => void handleRegenerate()}
+                className="h-12 rounded-2xl"
               >
                 {regenerating ? '准备中…' : '重新生成'}
               </Button>
               <Button
-                variant="soft"
+                variant="outline"
                 size="lg"
                 fullWidth
                 icon={<Wand2 size={18} />}
                 onClick={() => navigate('/vlog-learn')}
+                className="h-12 rounded-2xl bg-white text-text shadow-sm"
               >
                 返回拍摄清单
               </Button>
@@ -496,24 +523,49 @@ export function CompletePage() {
             <>
               {hasStudioEditorProject() && (
                 <Button
-                  variant="outline"
+                  variant="soft"
                   size="lg"
                   fullWidth
+                  icon={<span className="text-lg leading-none">✂</span>}
                   onClick={() => navigate('/editor')}
+                  className="h-12 rounded-2xl"
                 >
-                  继续编辑
+                  继续剪辑
                 </Button>
               )}
               <Button
-                variant="soft"
+                variant="outline"
                 size="lg"
                 fullWidth
+                icon={<Flower2 size={18} />}
                 onClick={() => navigate('/create')}
+                className="h-12 rounded-2xl bg-white text-text shadow-sm"
               >
                 再导入一组视频
               </Button>
             </>
           )}
+        </section>
+
+        <section className="mt-6">
+          <h3 className="mb-3 text-sm font-semibold text-text-muted">你可能还喜欢</h3>
+          <div className="flex gap-3 overflow-x-auto pb-2">
+            {[
+              { title: '治愈旅行风', subtitle: '轻松配乐 · 慢节奏', cover: 'https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=300&h=200&fit=crop' },
+              { title: '城市漫步', subtitle: '街景转场 · 文艺字幕', cover: 'https://images.unsplash.com/photo-1488646953014-85cb44e25828?w=300&h=200&fit=crop' },
+              { title: '海边日记', subtitle: '清新滤镜 · 浪花音效', cover: 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=300&h=200&fit=crop' },
+            ].map((item) => (
+              <article key={item.title} className="w-[160px] shrink-0 overflow-hidden rounded-[22px] bg-white shadow-[var(--shadow-card)]">
+                <div className="aspect-[4/3] bg-black">
+                  <img src={item.cover} alt={item.title} className="h-full w-full object-cover" />
+                </div>
+                <div className="p-3">
+                  <p className="text-sm font-semibold text-text">{item.title}</p>
+                  <p className="mt-1 text-[11px] text-text-muted">{item.subtitle}</p>
+                </div>
+              </article>
+            ))}
+          </div>
         </section>
       </section>
 
