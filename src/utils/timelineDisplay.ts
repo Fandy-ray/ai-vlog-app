@@ -15,6 +15,10 @@ export function buildTextClipLabel(content: string): string {
 
 export function buildStickerClipLabel(stickerId: string, name?: string): string {
   if (stickerId === 'magic-doodle-drawing') return '涂鸦 · 动态手绘'
+  if (stickerId === 'magic-doodle-style' || name === '魔法风格') return '涂鸦 · 风格'
+  if (stickerId === 'magic-doodle-sticker' || stickerId === 'magic-doodle') {
+    return '涂鸦 · 贴纸'
+  }
   if (name) return `贴纸 · ${name}`
   const preset = getStickerPreset(stickerId)
   const hint = preset ? `${preset.emoji} ${preset.name}` : stickerId

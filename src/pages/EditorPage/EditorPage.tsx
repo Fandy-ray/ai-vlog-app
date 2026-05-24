@@ -380,6 +380,9 @@ export function EditorPage() {
   const [doodleGenerating, setDoodleGenerating] = useState(false)
   const [doodleFramePreview, setDoodleFramePreview] = useState<string | null>(null)
   const [doodleMode, setDoodleMode] = useState<MagicDoodleMode>('sticker')
+  const [draftDoodleRange, setDraftDoodleRange] = useState(() =>
+    createDefaultTimeRange(projectDuration),
+  )
   const [doodleBrushSettings, setDoodleBrushSettings] = useState<DoodleBrushSettings>({
     color: '#f59e0b',
     size: 10,
@@ -1442,7 +1445,6 @@ export function EditorPage() {
           size: draft.size,
         })
 
-        const range = createDefaultTimeRangeFromPlayhead(projectDuration, currentTime)
         const fullFrame = draft.mode === 'style'
         let imageUrl = result.imageUrl
         let placement = DEFAULT_DOODLE_PLACEMENT
@@ -1455,17 +1457,17 @@ export function EditorPage() {
         }
         const overlay: StickerOverlay = {
           id: createStickerId(),
-          stickerId: 'magic-doodle',
+          stickerId: fullFrame ? 'magic-doodle-style' : 'magic-doodle-sticker',
           imageUrl,
           imageFit: fullFrame ? 'cover' : 'contain',
-          name: draft.mode === 'style' ? '魔法风格' : '魔法涂鸦',
+          name: fullFrame ? '魔法风格' : '魔法贴纸',
           x: fullFrame ? 50 : placement.x,
           y: fullFrame ? 50 : placement.y,
           width: fullFrame ? 100 : placement.width,
           height: fullFrame ? 100 : placement.height,
           rotation: 0,
-          startTime: range.startTime,
-          endTime: range.endTime,
+          startTime: draft.range.startTime,
+          endTime: draft.range.endTime,
         }
 
         pushEditorHistory({
@@ -1485,9 +1487,7 @@ export function EditorPage() {
     },
     [
       closeAllPanels,
-      currentTime,
       doodleGenerating,
-      projectDuration,
       pushEditorHistory,
       selectSticker,
       setIsPlaying,
@@ -2282,7 +2282,12 @@ export function EditorPage() {
       return
     }
     if (id === 'doodle') {
-      if (activeFeature !== 'doodle') setIsPlaying(false)
+      if (activeFeature !== 'doodle') {
+        setIsPlaying(false)
+        setDraftDoodleRange(
+          createDefaultTimeRangeFromPlayhead(projectDuration, currentTime),
+        )
+      }
       setDoodleMode('sticker')
       resetDoodleRecording()
       setActiveFeature((prev) => (prev === 'doodle' ? null : 'doodle'))
@@ -2899,9 +2904,12 @@ export function EditorPage() {
             backgroundImage={doodleFramePreview}
             brushSettings={doodleBrushSettings}
             hasRecordedDoodle={draftDoodleStrokes.length > 0}
+            range={draftDoodleRange}
+            videoDuration={projectDuration}
             onGenerate={handleDoodleGenerate}
             onModeChange={setDoodleMode}
             onBrushSettingsChange={setDoodleBrushSettings}
+            onRangeChange={setDraftDoodleRange}
             onClearRecordedDoodle={resetDoodleRecording}
             onConfirmRecordedDoodle={handleConfirmRecordedDoodle}
             onClose={() => {
