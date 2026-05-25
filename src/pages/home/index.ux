@@ -1,0 +1,162 @@
+<import name="c-bottom-nav" src="../../components/BottomNav/index.ux"></import>
+<import name="c-memory-card" src="../../components/MemoryCard/index.ux"></import>
+
+<template>
+  <div class="web-page-with-nav">
+    <div class="web-header">
+      <div class="web-brand-row">
+        <text class="web-brand-icon">◎</text>
+        <text class="web-brand-title">忆眸</text>
+      </div>
+      <text class="web-icon-btn" onclick="onSearch">⌕</text>
+    </div>
+
+    <list class="web-home-scroll">
+      <list-item type="hero" class="home-block home-hero-block">
+        <stack class="web-hero-stack" onclick="goCreate">
+          <image class="web-hero" src="{{ heroCover }}"></image>
+          <div class="web-hero-mask"></div>
+          <div class="web-hero-content">
+            <text class="web-hero-badge">✦ AI 智能创作</text>
+            <text class="web-hero-title">开始智能创作</text>
+            <text class="web-hero-sub">让每一段旅途都成为电影</text>
+          </div>
+        </stack>
+      </list-item>
+
+      <list-item type="learn" class="home-block home-learn-block">
+        <div class="web-learn-card" onclick="goVlogLearn">
+          <text class="web-learn-icon">🎓</text>
+          <div class="web-learn-main">
+            <div class="web-learn-title-row">
+              <text class="web-learn-title">学习 Vlog</text>
+              <text class="web-learn-tag">AI 导拍</text>
+            </div>
+            <text class="web-learn-desc">九宫格构图 · 人物该放哪一格</text>
+          </div>
+          <text class="web-learn-arrow">›</text>
+        </div>
+      </list-item>
+
+      <list-item type="section" class="home-block home-section-block">
+        <div class="web-section-head">
+          <text class="web-section-title">回忆瞬间</text>
+          <text class="web-section-link" onclick="onViewAll">查看全部 ›</text>
+        </div>
+      </list-item>
+
+      <list-item type="memory" class="home-block home-memory-block">
+        <div class="web-memory-grid">
+          <block for="{{ (index, item) in memoryItems }}">
+            <c-memory-card item="{{ item }}" onclick="onMemoryClick"></c-memory-card>
+          </block>
+        </div>
+      </list-item>
+
+      <list-item type="spacer" class="home-spacer"></list-item>
+    </list>
+
+    <c-bottom-nav
+      active="home"
+      garden-badge="{{ 3 }}"
+      safe-bottom="{{ safeBottom }}"
+      onchange="onTabChange"
+    ></c-bottom-nav>
+  </div>
+</template>
+
+<script>
+import $routes from '../../helper/routes'
+import { HERO_COVER, MEMORY_ITEMS } from '../../helper/data/memories'
+import $utils from '../../helper/utils'
+
+export default {
+  private: {
+    safeBottom: 0,
+    heroCover: HERO_COVER,
+    memoryItems: MEMORY_ITEMS
+  },
+
+  onInit() {
+    const inset = this.$page && this.$page.safeAreaInsets
+    this.safeBottom = inset && inset.bottom ? inset.bottom : 0
+  },
+
+  onShow() {},
+
+  onSearch() {
+    $utils.showToast('搜索功能开发中')
+  },
+
+  onViewAll() {
+    $utils.showToast('查看全部回忆')
+  },
+
+  goCreate() {
+    $routes.push('create')
+  },
+
+  goVlogLearn() {
+    $routes.push('vlogLearn')
+  },
+
+  onMemoryClick() {
+    $routes.push('create')
+  },
+
+  onTabChange(evt) {
+    const tab = evt.detail.tab
+
+    if (tab === 'create') {
+      $routes.push('create')
+      return
+    }
+
+    if (tab === 'home') {
+      return
+    }
+
+    const label = tab === 'garden' ? '记忆花园' : '我的'
+    $utils.showToast(`${label}即将开放`)
+  }
+}
+</script>
+
+<style lang="less">
+@import './../../assets/styles/style.less';
+
+.web-home-scroll {
+  flex: 1;
+  width: 100%;
+  background-color: @page-bg;
+}
+
+.home-block {
+  width: 100%;
+  padding-left: @page-padding;
+  padding-right: @page-padding;
+}
+
+.home-hero-block {
+  margin-top: 8px;
+  margin-bottom: 24px;
+}
+
+.home-learn-block {
+  margin-bottom: 24px;
+}
+
+.home-section-block {
+  margin-bottom: 16px;
+}
+
+.home-memory-block {
+  margin-bottom: 8px;
+  padding-left: @page-padding;
+  padding-right: @page-padding;
+}
+
+.home-spacer {
+  height: 24px;
+}
+</style>

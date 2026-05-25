@@ -1,0 +1,146 @@
+<import name="c-navbar" src="../../components/Navbar/index.ux"></import>
+<import name="c-button" src="../../components/Button/index.ux"></import>
+<import name="c-card" src="../../components/Card/index.ux"></import>
+<import name="c-style-card" src="../../components/StyleCard/index.ux"></import>
+
+<template>
+  <div class="page-shell">
+    <c-navbar
+      title="风格与类型"
+      show-back="{{ navShowBack }}"
+      safe-top="{{ safeTop }}"
+      onback="onNavBack"
+    ></c-navbar>
+
+    <div class="page-body">
+      <text class="page-section-title">选择 Vlog 类型</text>
+      <text class="page-hint">类型会影响拍摄指引、默认素材和生成脚本。</text>
+
+      <c-card>
+        <block for="{{ (index, item) in types }}">
+          <c-style-card
+            title="{{ item.name }}"
+            meta="{{ item.description || item.desc }}"
+            active="{{ selectedType === item.type }}"
+            item-key="{{ item.type }}"
+            tone="primary"
+            onclick="onTypeCard"
+          ></c-style-card>
+        </block>
+      </c-card>
+
+      <text class="page-section-title">视觉风格</text>
+      <c-card>
+        <block for="{{ (index, item) in styles }}">
+          <c-style-card
+            title="{{ item.name }}"
+            meta="{{ item.filterName }} / {{ item.bgmName }}"
+            active="{{ selectedStyle === item.id }}"
+            item-key="{{ item.id }}"
+            tone="neutral"
+            onclick="onStyleCard"
+          ></c-style-card>
+        </block>
+      </c-card>
+
+      <div class="page-actions">
+        <c-button text="进入拍摄指引" variant="primary" onclick="goShoot"></c-button>
+        <c-button text="返回首页" variant="default" onclick="goHome"></c-button>
+      </div>
+    </div>
+  </div>
+</template>
+
+<script>
+import $routes from '../../helper/routes'
+import vlogApi from '../../helper/apis/vlog'
+import store from '../../helper/store'
+import $utils from '../../helper/utils'
+
+export default {
+  private: {
+    safeTop: 0,
+    navShowBack: true,
+    types: [],
+    styles: [],
+    selectedType: 'study',
+    selectedStyle: 'study'
+  },
+
+  onInit() {
+    const h = this.$page.statusBarHeight
+    this.safeTop = typeof h === 'number' ? h : 0
+    this.selectedType = store.state.type || 'study'
+    this.selectedStyle = store.state.style || 'study'
+    this.loadOptions()
+  },
+
+  loadOptions() {
+    vlogApi
+      .getVlogTypes()
+      .then(types => {
+        this.types = types || []
+        store.setState({ types: this.types })
+      })
+      .catch(() => {
+        $utils.showToast('类型加载失败')
+      })
+
+    vlogApi
+      .getStyleTemplates()
+      .then(styles => {
+        this.styles = styles || []
+        store.setState({ styles: this.styles })
+      })
+      .catch(() => {
+        $utils.showToast('风格加载失败')
+      })
+  },
+
+  onTypeCard(evt) {
+    const type = evt.detail && evt.detail.key
+    const row = (this.types || []).find(item => item.type === type)
+
+    this.selectedType = type
+
+    if (row && row.defaultStyle) {
+      this.selectedStyle = row.defaultStyle
+    }
+
+    store.resetFlow()
+    store.setState({
+      type: this.selectedType,
+      style: this.selectedStyle
+    })
+  },
+
+  onStyleCard(evt) {
+    this.selectedStyle = evt.detail && evt.detail.key
+    store.resetFlow()
+    store.setState({
+      type: this.selectedType,
+      style: this.selectedStyle
+    })
+  },
+
+  goShoot() {
+    store.setState({
+      type: this.selectedType,
+      style: this.selectedStyle
+    })
+    $routes.push('shoot')
+  },
+
+  goHome() {
+    $routes.push('home')
+  },
+
+  onNavBack() {
+    $routes.back()
+  }
+}
+</script>
+
+<style lang="less">
+@import './../../assets/styles/style.less';
+</style>

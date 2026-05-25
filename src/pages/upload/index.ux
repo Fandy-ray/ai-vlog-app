@@ -1,0 +1,370 @@
+<import name="c-upload-zone" src="../../components/UploadZone/index.ux"></import>
+<import name="c-material-card" src="../../components/MaterialCard/index.ux"></import>
+<import name="c-material-preview" src="../../components/MaterialPreview/index.ux"></import>
+<import name="c-button" src="../../components/Button/index.ux"></import>
+
+<template>
+  <div class="page-shell upload-page {{ pageAnimClass }}">
+    <text class="upload-heading">素材上传与预览</text>
+    <text class="upload-hint">支持从相册选择视频/图片，选中后立即加入列表；真机调试请授予相册权限。</text>
+    <text class="upload-status">{{ statusText }}</text>
+
+    <c-upload-zone
+      loading="{{ uploadLoading }}"
+      loading-text="素材上传中..."
+      error-text="{{ uploadError }}"
+      onpickvideo="pickVideo"
+      onpickimage="pickImage"
+    ></c-upload-zone>
+
+    <div class="upload-tools">
+      <c-button text="使用 Mock 素材" variant="ghost" onclick="useMockMaterials"></c-button>
+    </div>
+
+    <div class="upload-empty anim-fade-in" if="{{ !materials.length && !uploadLoading }}">
+      <text class="upload-empty-title">还没有素材</text>
+      <text class="upload-empty-text">上传后将在此以卡片网格展示</text>
+    </div>
+
+    <div class="upload-grid anim-slide-up" if="{{ materials.length }}">
+      <block for="{{ (index, item) in materials }}">
+        <c-material-card
+          material="{{ item }}"
+          index="{{ index }}"
+          exiting="{{ removingIndex === index }}"
+          onpreview="onPreview"
+          onremove="onRemove"
+        ></c-material-card>
+      </block>
+    </div>
+
+    <c-material-preview
+      visible="{{ previewVisible }}"
+      uri="{{ previewUri }}"
+      title="{{ previewTitle }}"
+      is-image="{{ previewIsImage }}"
+      onclose="closePreview"
+    ></c-material-preview>
+
+    <div class="upload-actions">
+      <c-button text="生成 Vlog" variant="primary" onclick="goGenerate"></c-button>
+      <c-button text="返回拍摄指引" variant="default" onclick="goShoot"></c-button>
+    </div>
+  </div>
+</template>
+
+<script>
+import anim from '../../assets/js/animations'
+import media from '@system.media'
+import prompt from '@system.prompt'
+import $routes from '../../helper/routes'
+import vlogApi from '../../helper/apis/vlog'
+import store from '../../helper/store'
+import $utils from '../../helper/utils'
+
+function filenameFromUri(uri = '', index = 0, ext = 'mp4') {
+  const filename = uri.split('/').reverse()[0]
+  return filename || `素材${index + 1}.${ext}`
+}
+
+export default {
+  private: {
+    pageAnimClass: '',
+    statusText: '等待选择素材',
+    materials: [],
+    uploadLoading: false,
+    uploadError: '',
+    removingIndex: -1,
+    previewVisible: false,
+    previewUri: '',
+    previewTitle: '',
+    previewIsImage: true
+  },
+
+  onInit() {
+    this.$page.setTitleBar({ text: '上传素材' })
+    this.materials = store.state.materials || []
+    anim.triggerPageEnter(this)
+    this.updateStatus()
+  },
+
+  onShow() {
+    this.materials = store.state.materials || []
+    anim.triggerPageEnter(this)
+    this.updateStatus()
+  },
+
+  updateStatus() {
+    this.statusText = this.materials.length
+      ? `已准备 ${this.materials.length} 个素材`
+      : '等待选择素材'
+  },
+
+  syncStore() {
+    store.setState({ materials: this.materials })
+    this.updateStatus()
+  },
+
+  pickVideo() {
+    this.pickMedia('video')
+  },
+
+  pickImage() {
+    this.pickMedia('image')
+  },
+
+  pickMedia(kind) {
+    const success = res => {
+      const uris = res.uris || (res.uri ? [res.uri] : [])
+      this.handlePicked(uris, kind)
+    }
+    const fail = () => {
+      this.uploadError = '选取素材失败，请重试或使用 Mock 素材'
+      $utils.showToast('选取素材失败')
+    }
+
+    try {
+      if (kind === 'video') {
+        if (media.pickVideos) {
+          media.pickVideos({ success, fail })
+        } else {
+          media.pickVideo({ success, fail })
+        }
+      } else if (media.pickImages) {
+        media.pickImages({ success, fail })
+      } else {
+        media.pickImage({ success, fail })
+      }
+    } catch (error) {
+      fail(error)
+    }
+  },
+
+  handlePicked(uris = [], kind) {
+    if (!uris.length) {
+      return
+    }
+
+    this.uploadError = ''
+    this.statusText = '正在导入素材...'
+
+    const baseIndex = this.materials.length
+    const picked = uris.map((uri, index) => {
+      const filename = filenameFromUri(uri, index, kind === 'video' ? 'mp4' : 'jpg')
+      return {
+        id: `local-${Date.now()}-${index}`,
+        type: store.state.type,
+        category: kind,
+        name: filename,
+        duration: kind === 'video' ? 5 : 3,
+        tags: ['upload', kind, 'local'],
+        sortWeight: 50 + baseIndex + index,
+        uri,
+        status: 'done'
+      }
+    })
+
+    this.materials = this.materials.concat(picked)
+    this.syncStore()
+    $utils.showToast(`已导入 ${picked.length} 个${kind === 'video' ? '视频' : '图片'}`)
+    this.statusText = `已准备 ${this.materials.length} 个素材`
+
+    this.uploadLoading = true
+    let queue = Promise.resolve()
+
+    picked.forEach((item, index) => {
+      const file = {
+        uri: item.uri,
+        filename: item.name,
+        category: kind
+      }
+
+      queue = queue.then(() => {
+        return vlogApi
+          .uploadMaterial(file, {
+            type: store.state.type,
+            category: kind,
+            index: baseIndex + index
+          })
+          .then(material => {
+            const list = this.materials.slice()
+            const targetIndex = baseIndex + index
+            if (list[targetIndex]) {
+              list[targetIndex] = {
+                ...list[targetIndex],
+                ...material,
+                uri: material.uri || list[targetIndex].uri,
+                status:
+                  material.uri && material.uri.indexOf('mock://') === 0
+                    ? 'mocked'
+                    : 'done'
+              }
+              this.materials = list
+              this.syncStore()
+            }
+          })
+          .catch(() => {})
+      })
+    })
+
+    queue.finally(() => {
+      this.uploadLoading = false
+    })
+  },
+
+  useMockMaterials() {
+    this.uploadLoading = true
+    this.uploadError = ''
+    this.statusText = '正在读取 Mock 素材...'
+
+    vlogApi
+      .getMaterials({
+        type: store.state.type || 'study',
+        style: store.state.style || 'study',
+        limit: 4
+      })
+      .then(materials => {
+        this.materials = (materials || []).map(item => ({
+          ...item,
+          status: 'mocked'
+        }))
+        this.syncStore()
+      })
+      .catch(() => {
+        this.uploadError = 'Mock 素材加载失败'
+        $utils.showToast('Mock 素材加载失败')
+      })
+      .finally(() => {
+        this.uploadLoading = false
+      })
+  },
+
+  onPreview(evt) {
+    const index = evt.detail ? evt.detail.index : 0
+    const item = this.materials[index]
+
+    if (!item) {
+      return
+    }
+
+    this.previewUri = item.uri || ''
+    this.previewTitle = item.name || '素材预览'
+    this.previewIsImage = item.category === 'image'
+    this.previewVisible = true
+  },
+
+  closePreview() {
+    this.previewVisible = false
+  },
+
+  onRemove(evt) {
+    const index = evt.detail ? evt.detail.index : 0
+
+    prompt.showDialog({
+      title: '删除素材',
+      message: '确定从列表中移除该素材吗？',
+      buttons: [
+        { text: '取消', color: '#666666' },
+        { text: '删除', color: '#c45c4a' }
+      ],
+      success: data => {
+        if (data.index !== 1) {
+          return
+        }
+
+        this.removingIndex = index
+
+        setTimeout(() => {
+          const list = this.materials.slice()
+          list.splice(index, 1)
+          this.materials = list
+          this.removingIndex = -1
+          this.syncStore()
+        }, anim.DURATION_MS)
+      }
+    })
+  },
+
+  goGenerate() {
+    if (!this.materials.length) {
+      $utils.showToast('请先上传或选择 Mock 素材')
+      return
+    }
+
+    this.syncStore()
+    $routes.push('generate')
+  },
+
+  goShoot() {
+    $routes.push('shoot')
+  }
+}
+</script>
+
+<style lang="less">
+@import './../../assets/styles/style.less';
+
+.upload-page {
+  flex-direction: column;
+  padding: 32px;
+  background-color: @page-bg;
+}
+
+.upload-heading {
+  font-size: 38px;
+  font-weight: bold;
+  color: @text-primary;
+  margin-bottom: 10px;
+}
+
+.upload-hint {
+  font-size: 24px;
+  line-height: 36px;
+  color: @text-muted;
+  margin-bottom: 12px;
+}
+
+.upload-status {
+  font-size: 24px;
+  color: @brand-primary;
+  margin-bottom: 20px;
+}
+
+.upload-tools {
+  flex-direction: column;
+  margin-bottom: 8px;
+}
+
+.upload-empty {
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 160px;
+  padding: 28px;
+  border-radius: @radius-md;
+  background-color: @surface;
+  margin-bottom: 20px;
+}
+
+.upload-empty-title {
+  font-size: 30px;
+  color: @text-primary;
+  margin-bottom: 8px;
+}
+
+.upload-empty-text {
+  font-size: 24px;
+  color: @text-muted;
+}
+
+.upload-grid {
+  flex-direction: row;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  margin-bottom: 24px;
+}
+
+.upload-actions {
+  flex-direction: column;
+}
+</style>

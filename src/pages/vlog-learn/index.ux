@@ -1,0 +1,459 @@
+<import name="c-nine-grid" src="../../components/NineGridGuide/index.ux"></import>
+<import name="c-guide-tip" src="../../components/GuideTip/index.ux"></import>
+
+<template>
+  <div class="vlog-page">
+    <div class="vlog-header">
+      <text class="web-back-btn" onclick="goBack">‹</text>
+      <text class="vlog-header-title">学习 Vlog</text>
+      <text class="web-back-btn vlog-header-placeholder">‹</text>
+    </div>
+
+    <list class="vlog-scroll">
+      <list-item type="tip" class="vlog-block">
+        <div class="web-vlog-tip-card">
+          <text class="vlog-tip-icon">✦</text>
+          <div class="vlog-tip-main">
+            <text class="vlog-tip-title">AI 导拍提示</text>
+            <text class="vlog-tip-desc">
+              打开手机相机网格线，对照下方九宫格放置人物或景物。编号从左到右、从上到下为 1-9。
+            </text>
+          </div>
+        </div>
+      </list-item>
+
+      <list-item type="scenes-title" class="vlog-block">
+        <div class="web-section-head">
+          <text class="web-section-title">拍摄场景</text>
+          <text class="web-section-link">左右滑动选择</text>
+        </div>
+      </list-item>
+
+      <list-item type="scenes" class="vlog-block vlog-scenes-block">
+        <swiper
+          class="vlog-scene-swiper"
+          index="{{ activeIndex }}"
+          previousmargin="24px"
+          nextmargin="24px"
+          indicator="false"
+          onchange="onSceneSwipe"
+        >
+          <block for="{{ (index, item) in scenes }}">
+            <div
+              class="vlog-scene-slide"
+              onclick="onSceneTap"
+              data-index="{{ index }}"
+              data-scene="{{ item.id }}"
+            >
+              <div class="web-scene-chip {{ activeIndex === index ? 'web-scene-chip-active' : '' }}">
+                <text class="web-scene-chip-title {{ activeIndex === index ? 'scene-text-active' : '' }}">{{ item.title }}</text>
+                <text class="web-scene-chip-sub {{ activeIndex === index ? 'scene-sub-active' : '' }}">{{ item.subtitle }}</text>
+              </div>
+            </div>
+          </block>
+        </swiper>
+      </list-item>
+
+      <list-item type="dots" class="vlog-block vlog-dots-row">
+        <block for="{{ (index, item) in scenes }}">
+          <div
+            class="vlog-dot {{ activeIndex === index ? 'vlog-dot-active' : '' }}"
+            onclick="onSceneTap"
+            data-scene="{{ item.id }}"
+            data-index="{{ index }}"
+          ></div>
+        </block>
+      </list-item>
+
+      <list-item type="detail" class="vlog-block">
+        <div class="vlog-detail-card" if="{{ activeId }}">
+          <div class="vlog-detail-head">
+            <text class="vlog-detail-icon">🎬</text>
+            <div class="vlog-detail-head-main">
+              <text class="vlog-detail-title">{{ sceneTitle }}</text>
+              <text class="vlog-detail-sub">{{ sceneSubtitle }}</text>
+            </div>
+          </div>
+
+          <div class="vlog-grid-wrap">
+            <c-nine-grid
+              key="{{ activeId }}"
+              subject-cells="{{ sceneSubjectCells }}"
+              accent-cells="{{ sceneAccentCells }}"
+            ></c-nine-grid>
+          </div>
+
+          <div class="vlog-guide-wrap">
+            <c-guide-tip title="AI 导播" description="{{ sceneAiPrompt }}"></c-guide-tip>
+          </div>
+
+          <div class="web-compose-box">
+            <text class="compose-title">构图要点</text>
+            <text class="compose-body">{{ sceneGridSummary }}</text>
+            <text class="compose-hint">建议主体：{{ subjectHint }}</text>
+          </div>
+
+          <block for="{{ (index, step) in sceneSteps }}">
+            <div class="vlog-step-row">
+              <text class="vlog-step-num">{{ index + 1 }}</text>
+              <text class="vlog-step-text">{{ step }}</text>
+            </div>
+          </block>
+        </div>
+      </list-item>
+
+      <list-item type="spacer" class="vlog-spacer"></list-item>
+    </list>
+  </div>
+</template>
+
+<script>
+import $routes from '../../helper/routes'
+import { GRID_CELL_LABELS, VLOG_SCENES } from '../../helper/data/vlogGuide'
+
+function formatCells(cells = []) {
+  return cells
+    .map(c => `第 ${c} 格（${GRID_CELL_LABELS[c]}）`)
+    .join('、')
+}
+
+function pickSceneFields(scene) {
+  return {
+    sceneTitle: scene.title,
+    sceneSubtitle: scene.subtitle,
+    sceneSubjectCells: scene.subjectCells.slice(),
+    sceneAccentCells: scene.accentCells.slice(),
+    sceneAiPrompt: scene.aiPrompt,
+    sceneGridSummary: scene.gridSummary,
+    sceneSteps: scene.steps.slice(),
+    subjectHint: formatCells(scene.subjectCells)
+  }
+}
+
+const defaultScene = VLOG_SCENES[0]
+const defaultFields = pickSceneFields(defaultScene)
+
+export default {
+  private: {
+    scenes: VLOG_SCENES,
+    activeIndex: 0,
+    activeId: defaultScene.id,
+    sceneTitle: defaultFields.sceneTitle,
+    sceneSubtitle: defaultFields.sceneSubtitle,
+    sceneSubjectCells: defaultFields.sceneSubjectCells,
+    sceneAccentCells: defaultFields.sceneAccentCells,
+    sceneAiPrompt: defaultFields.sceneAiPrompt,
+    sceneGridSummary: defaultFields.sceneGridSummary,
+    sceneSteps: defaultFields.sceneSteps,
+    subjectHint: defaultFields.subjectHint
+  },
+
+  goBack() {
+    $routes.back()
+  },
+
+  onSceneSwipe(evt) {
+    const index = evt && evt.index !== undefined ? Number(evt.index) : -1
+    if (index >= 0 && index < this.scenes.length) {
+      this.selectScene(this.scenes[index].id, index)
+    }
+  },
+
+  onSceneTap(evt) {
+    const sceneId = this.resolveAttr(evt, 'scene')
+    const sceneIndex = Number(this.resolveAttr(evt, 'index'))
+
+    if (sceneId) {
+      this.selectScene(sceneId, sceneIndex)
+      return
+    }
+
+    if (sceneIndex >= 0 && sceneIndex < this.scenes.length) {
+      this.selectScene(this.scenes[sceneIndex].id, sceneIndex)
+    }
+  },
+
+  resolveAttr(evt, key) {
+    let target = evt && evt.target
+    while (target) {
+      if (target.attr && target.attr[key] !== undefined && target.attr[key] !== '') {
+        return target.attr[key]
+      }
+      target = target.parentElement || target.parent
+    }
+    return ''
+  },
+
+  selectScene(id, indexHint) {
+    const index =
+      indexHint >= 0 ? indexHint : this.scenes.findIndex(item => item.id === id)
+    const scene = index >= 0 ? this.scenes[index] : this.scenes[0]
+    const fields = pickSceneFields(scene)
+
+    this.activeIndex = index >= 0 ? index : 0
+    this.activeId = scene.id
+    this.sceneTitle = fields.sceneTitle
+    this.sceneSubtitle = fields.sceneSubtitle
+    this.sceneSubjectCells = fields.sceneSubjectCells
+    this.sceneAccentCells = fields.sceneAccentCells
+    this.sceneAiPrompt = fields.sceneAiPrompt
+    this.sceneGridSummary = fields.sceneGridSummary
+    this.sceneSteps = fields.sceneSteps
+    this.subjectHint = fields.subjectHint
+  }
+}
+</script>
+
+<style lang="less">
+@import './../../assets/styles/style.less';
+
+.vlog-page {
+  flex-direction: column;
+  flex: 1;
+  width: 100%;
+  background-color: @page-bg;
+}
+
+.vlog-header {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px @page-padding 16px @page-padding;
+  background-color: fade(@page-bg, 92%);
+}
+
+.vlog-header-title {
+  flex: 1;
+  text-align: center;
+  font-size: 30px;
+  font-weight: bold;
+  color: @text-primary;
+}
+
+.vlog-header-placeholder {
+  opacity: 0;
+}
+
+.vlog-scroll {
+  flex: 1;
+  width: 100%;
+}
+
+.vlog-block {
+  width: 100%;
+  padding-left: @page-padding;
+  padding-right: @page-padding;
+}
+
+.vlog-tip-icon {
+  width: 80px;
+  height: 80px;
+  border-radius: 20px;
+  background-color: @brand-primary;
+  color: @white;
+  font-size: 36px;
+  text-align: center;
+  padding-top: 16px;
+  margin-right: 20px;
+}
+
+.vlog-tip-main {
+  flex: 1;
+  flex-direction: column;
+  width: 100%;
+}
+
+.vlog-tip-title {
+  font-size: 28px;
+  font-weight: bold;
+  color: @text-primary;
+  width: 100%;
+}
+
+.vlog-tip-desc {
+  font-size: 24px;
+  color: @text-secondary;
+  margin-top: 8px;
+  line-height: 36px;
+  width: 100%;
+}
+
+.vlog-scenes-block {
+  padding-left: 0;
+  padding-right: 0;
+}
+
+.vlog-scene-swiper {
+  width: 100%;
+  height: 176px;
+}
+
+.vlog-scene-slide {
+  width: 100%;
+  height: 100%;
+  align-items: center;
+  justify-content: center;
+  padding: 0 8px;
+}
+
+.vlog-scene-slide .web-scene-chip {
+  width: 280px;
+  height: 148px;
+  padding: 20px;
+  border-radius: @radius-lg;
+  background-color: @surface;
+  border-width: 1px;
+  border-color: @border-subtle;
+  flex-direction: column;
+  flex-shrink: 0;
+}
+
+.web-scene-chip-active {
+  background-color: @brand-primary;
+  border-color: @brand-primary;
+}
+
+.scene-text-active {
+  color: @white;
+}
+
+.scene-sub-active {
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.vlog-dots-row {
+  flex-direction: row;
+  justify-content: center;
+  align-items: center;
+  padding-top: 8px;
+  padding-bottom: 20px;
+}
+
+.vlog-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 6px;
+  background-color: @border-subtle;
+  margin-left: 8px;
+  margin-right: 8px;
+}
+
+.vlog-dot-active {
+  width: 40px;
+  background-color: @brand-primary;
+}
+
+.vlog-detail-card {
+  width: 100%;
+  padding: 24px;
+  border-radius: @radius-xl;
+  background-color: @surface;
+  flex-direction: column;
+}
+
+.vlog-detail-head {
+  flex-direction: row;
+  align-items: center;
+  margin-bottom: 20px;
+  width: 100%;
+}
+
+.vlog-detail-icon {
+  font-size: 32px;
+  margin-right: 12px;
+}
+
+.vlog-detail-head-main {
+  flex: 1;
+  flex-direction: column;
+  width: 100%;
+}
+
+.vlog-detail-title {
+  font-size: 32px;
+  font-weight: bold;
+  color: @text-primary;
+  width: 100%;
+}
+
+.vlog-detail-sub {
+  font-size: 24px;
+  color: @text-muted;
+  margin-top: 4px;
+  width: 100%;
+}
+
+.vlog-guide-wrap {
+  width: 100%;
+  margin-top: 20px;
+  margin-bottom: 20px;
+}
+
+.vlog-grid-wrap {
+  width: 100%;
+}
+
+.web-compose-box {
+  width: 100%;
+  padding: 16px;
+  border-radius: 12px;
+  background-color: @page-bg;
+  margin-top: 20px;
+  margin-bottom: 16px;
+  flex-direction: column;
+}
+
+.compose-title {
+  font-size: 24px;
+  font-weight: bold;
+  color: @text-primary;
+  width: 100%;
+}
+
+.compose-body {
+  font-size: 24px;
+  color: @text-secondary;
+  margin-top: 8px;
+  line-height: 36px;
+  width: 100%;
+}
+
+.compose-hint {
+  font-size: 20px;
+  color: @text-muted;
+  margin-top: 12px;
+  width: 100%;
+}
+
+.vlog-step-row {
+  flex-direction: row;
+  align-items: flex-start;
+  width: 100%;
+  margin-bottom: 12px;
+}
+
+.vlog-step-num {
+  width: 40px;
+  height: 40px;
+  border-radius: 20px;
+  background-color: fade(@brand-primary, 10%);
+  color: @brand-primary;
+  text-align: center;
+  font-size: 20px;
+  padding-top: 6px;
+  margin-right: 12px;
+}
+
+.vlog-step-text {
+  flex: 1;
+  font-size: 24px;
+  color: @text-secondary;
+  line-height: 36px;
+  margin-top: 4px;
+  width: 100%;
+}
+
+.vlog-spacer {
+  height: 48px;
+}
+</style>

@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "moodFolders": {
+    "nature": ["chill", "cinematic", "ambient"],
+    "calm": ["chill", "ambient"],
+    "concert": ["concert", "energetic"],
+    "energetic": ["energetic", "concert"],
+    "urban": ["nightwalk", "cinematic"],
+    "food": ["cinematic", "chill"],
+    "study": ["ambient", "chill"]
+  },
+  "ambientGain": {
+    "concert": 0.88,
+    "nature": 0.62,
+    "urban": 0.55,
+    "energetic": 0.5,
+    "food": 0.48,
+    "calm": 0.45,
+    "study": 0.4,
+    "default": 0.5
+  }
+}
