@@ -1,7 +1,7 @@
 const axios = require('axios')
 const { randomUUID } = require('crypto')
 
-const DEFAULT_BASE_URL = 'https://api-ai.vivo.com.cn/v1'
+const DEFAULT_BASE_URL = 'https://api-ai.vivo.com.cn'
 const DEFAULT_MODEL = 'Doubao-Seed-2.0-mini'
 
 /**
