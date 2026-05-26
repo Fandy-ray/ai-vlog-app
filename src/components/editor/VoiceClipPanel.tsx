@@ -2,10 +2,74 @@ import { Check, Mic, Trash2, X } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { EditorToolPanelShell } from '@/components/editor/EditorToolPanelShell'
 
+type VoiceCommandType = 'speed' | 'delete' | 'keepRange' | 'rotate' | 'mirror'
+
+type VoiceCommandItem = {
+  id: string
+  command: VoiceCommandType
+  label: string
+  payload?: { rate?: number; start?: number; end?: number; rotationSteps?: number }
+}
+
+const CHINESE_DIGIT_MAP: Record<string, number> = {
+  零: 0,
+  一: 1,
+  二: 2,
+  两: 2,
+  三: 3,
+  四: 4,
+  五: 5,
+  六: 6,
+  七: 7,
+  八: 8,
+  九: 9,
+  十: 10,
+}
+
+function parseNumberToken(token: string): number | null {
+  const normalized = token.trim()
+  if (!normalized) return null
+  if (/^\d+(?:\.\d+)?$/.test(normalized)) return Number(normalized)
+  if (/^[零一二两三四五六七八九十]+$/.test(normalized)) {
+    if (normalized === '十') return 10
+    if (normalized.length === 2 && normalized.startsWith('十')) {
+      return 10 + (CHINESE_DIGIT_MAP[normalized[1]] ?? 0)
+    }
+    if (normalized.length === 2 && normalized.endsWith('十')) {
+      return (CHINESE_DIGIT_MAP[normalized[0]] ?? 0) * 10
+    }
+    if (normalized.includes('十')) {
+      const [head, tail] = normalized.split('十')
+      const tens = head ? (CHINESE_DIGIT_MAP[head] ?? 0) : 1
+      const ones = tail ? (CHINESE_DIGIT_MAP[tail] ?? 0) : 0
+      return tens * 10 + ones
+    }
+    return normalized.split('').reduce((sum, ch) => sum * 10 + (CHINESE_DIGIT_MAP[ch] ?? 0), 0)
+  }
+  return null
+}
+
+function parseRangeTokens(text: string): { start: number; end: number } | null {
+  const match = text.match(/([零一二两三四五六七八九十\d]+)\s*(?:到|[-–—~至])\s*([零一二两三四五六七八九十\d]+)/u)
+  if (!match) return null
+  const start = parseNumberToken(match[1])
+  const end = parseNumberToken(match[2])
+  if (start == null || end == null) return null
+  return { start, end }
+}
+
 interface VoiceClipPanelProps {
   busy?: boolean
   onClose: () => void
   onConfirm: () => void
+  onApplyCommands?: (
+    commands: VoiceCommandItem[],
+  ) => void
+  onToggleCommand?: (
+    command: VoiceCommandType,
+    payload?: { rate?: number; start?: number; end?: number; rotationSteps?: number },
+    enabled?: boolean,
+  ) => void
 }
 
 const SpeechRecognitionCtor =
@@ -20,14 +84,67 @@ const SpeechRecognitionCtor =
       }).webkitSpeechRecognition)
     : undefined
 
-export function VoiceClipPanel({ busy = false, onClose, onConfirm }: VoiceClipPanelProps) {
+export function VoiceClipPanel({ busy = false, onClose, onConfirm, onApplyCommands, onToggleCommand }: VoiceClipPanelProps) {
   const [recording, setRecording] = useState(false)
   const [transcript, setTranscript] = useState('')
   const [displayedTranscript, setDisplayedTranscript] = useState('')
-  const [confirmed, setConfirmed] = useState<string[]>([])
+  const [commands, setCommands] = useState<VoiceCommandItem[]>([])
+  const [confirmedIds, setConfirmedIds] = useState<string[]>([])
+  const [appliedIds, setAppliedIds] = useState<string[]>([])
   const [speechSupported] = useState(Boolean(SpeechRecognitionCtor))
   const [waveSeed, setWaveSeed] = useState(0)
   const recognitionRef = useRef<SpeechRecognition | null>(null)
+  const parsedCommands = useMemo<VoiceCommandItem[]>(() => {
+    if (!transcript) return []
+    const text = transcript.replace(/^识别结果[:：\s]*/u, '').trim()
+    const items: VoiceCommandItem[] = []
+    const rateMatch = text.match(/([零一二两三四五六七八九十\d]+(?:\.\d+)?)\s*倍/u)
+    if (/(倍速|加速|慢放|速度)/u.test(text)) {
+      const rate = rateMatch ? String(parseNumberToken(rateMatch[1]) ?? 1.5) : '1.5'
+      items.push({
+        id: 'speed',
+        command: 'speed',
+        label: `${rate} 倍速`,
+        payload: { rate: Number(rate) },
+      })
+    }
+    const rangeMatch = parseRangeTokens(text)
+    if (/(删除|删掉|移除|去掉)/u.test(text)) {
+      const rangeLabel = rangeMatch ? `删除 ${rangeMatch.start} 到 ${rangeMatch.end} 秒` : '删除片段'
+      items.push({
+        id: 'delete',
+        command: 'delete',
+        label: rangeLabel,
+        payload: rangeMatch ? { start: rangeMatch.start, end: rangeMatch.end } : undefined,
+      })
+    }
+    if (/(保留|保留.*?到|保留.*?时间段)/u.test(text)) {
+      const start = rangeMatch?.start ?? 15
+      const end = rangeMatch?.end ?? 20
+      items.push({
+        id: 'keepRange',
+        command: 'keepRange',
+        label: `保留 ${start} 到 ${end} 秒`,
+        payload: { start, end },
+      })
+    }
+    if (/(旋转|转向|向左转|向右转|向左旋转|向右旋转)/u.test(text)) {
+      const isLeft = /向左转|向左旋转/u.test(text)
+      const isRight = /向右转|向右旋转/u.test(text)
+      const label = isLeft ? '向左旋转' : isRight ? '向右旋转' : '旋转片段'
+      items.push({
+        id: 'rotate',
+        command: 'rotate',
+        label,
+        payload: { rotationSteps: isLeft ? 3 : 1 },
+      })
+    }
+    if (/(镜像|翻转)/u.test(text)) {
+      const label = /左右|水平/u.test(text) ? '左右镜像' : '镜像片段'
+      items.push({ id: 'mirror', command: 'mirror', label })
+    }
+    return items
+  }, [transcript])
 
   const suggestions = useMemo(
     () => [
@@ -37,6 +154,10 @@ export function VoiceClipPanel({ busy = false, onClose, onConfirm }: VoiceClipPa
     ],
     [],
   )
+
+  useEffect(() => {
+    setCommands(parsedCommands)
+  }, [parsedCommands])
 
   useEffect(() => {
     const Recognition = SpeechRecognitionCtor
@@ -93,7 +214,7 @@ export function VoiceClipPanel({ busy = false, onClose, onConfirm }: VoiceClipPa
     const recognition = recognitionRef.current
     if (!speechSupported || !recognition) {
       if (!recording && !transcript) {
-        setTranscript('识别结果：我想把这里的静音删掉，然后保留前面这段口播')
+        setTranscript('识别结果：把这段速度调成 1.5 倍，然后删除 10 到 12 秒，保留 15 到 20 秒，向右旋转并镜像')
       }
       setRecording((prev) => !prev)
       return
@@ -115,7 +236,9 @@ export function VoiceClipPanel({ busy = false, onClose, onConfirm }: VoiceClipPa
     setRecording(false)
     setTranscript('')
     setDisplayedTranscript('')
-    setConfirmed([])
+    setCommands([])
+    setConfirmedIds([])
+    setAppliedIds([])
   }
 
   return (
@@ -134,8 +257,15 @@ export function VoiceClipPanel({ busy = false, onClose, onConfirm }: VoiceClipPa
           </button>
           <button
             type="button"
-            onClick={onConfirm}
-            disabled={busy}
+            onClick={() => {
+              const selected = commands.filter((item) => confirmedIds.includes(item.id))
+              if (selected.length > 0) {
+                onApplyCommands?.(selected)
+              }
+              setAppliedIds(confirmedIds)
+              onConfirm()
+            }}
+            disabled={busy || confirmedIds.length === 0}
             className="flex h-8 w-8 items-center justify-center rounded-full bg-primary text-white shadow-[var(--shadow-soft)] transition-all hover:bg-primary-dark active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
             aria-label="确认"
           >
@@ -200,25 +330,53 @@ export function VoiceClipPanel({ busy = false, onClose, onConfirm }: VoiceClipPa
         <div className="rounded-[var(--radius-md)] bg-bg px-3 py-2.5">
           <p className="mb-2 text-[10px] font-medium text-text-muted">剪辑建议</p>
           <div className="space-y-2.5 max-h-[26vh] overflow-y-auto pr-1">
-            {suggestions.map((item) => {
-              const isConfirmed = confirmed.includes(item)
-              return (
-                <div key={item} className="flex items-start gap-2 rounded-[12px] bg-white px-2.5 py-2">
-                  <div className="min-w-0 flex-1">
-                    <p className="text-xs leading-5 text-text">{item}</p>
+            {commands.length > 0 ? (
+              commands.map((item) => {
+                const isConfirmed = confirmedIds.includes(item.id)
+                return (
+                  <div key={item.id} className="flex items-start gap-2 rounded-[12px] bg-white px-2.5 py-2">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs leading-5 text-text">{item.label}</p>
+                      <p className="mt-0.5 text-[10px] text-text-muted">点确认后会应用到视频，点已确认可取消</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setConfirmedIds((prev) => {
+                          const isOn = prev.includes(item.id)
+                          return isOn ? prev.filter((id) => id !== item.id) : [...prev, item.id]
+                        })
+                      }}
+                      className={`shrink-0 rounded-full px-2.5 py-1 text-[10px] font-medium transition-colors ${
+                        isConfirmed ? 'bg-emerald-100 text-emerald-700' : 'bg-primary text-white'
+                      }`}
+                    >
+                      {isConfirmed ? '已确认' : '确认'}
+                    </button>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => setConfirmed((prev) => (prev.includes(item) ? prev : [...prev, item]))}
-                    className={`shrink-0 rounded-full px-2.5 py-1 text-[10px] font-medium transition-colors ${
-                      isConfirmed ? 'bg-emerald-100 text-emerald-700' : 'bg-primary text-white'
-                    }`}
-                  >
-                    {isConfirmed ? '已确认' : '确认'}
-                  </button>
-                </div>
-              )
-            })}
+                )
+              })
+            ) : (
+              suggestions.map((item) => {
+                const isConfirmed = confirmedIds.includes(item)
+                return (
+                  <div key={item} className="flex items-start gap-2 rounded-[12px] bg-white px-2.5 py-2">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs leading-5 text-text">{item}</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setConfirmedIds((prev) => (prev.includes(item) ? prev : [...prev, item]))}
+                      className={`shrink-0 rounded-full px-2.5 py-1 text-[10px] font-medium transition-colors ${
+                        isConfirmed ? 'bg-emerald-100 text-emerald-700' : 'bg-primary text-white'
+                      }`}
+                    >
+                      {isConfirmed ? '已确认' : '确认'}
+                    </button>
+                  </div>
+                )
+              })
+            )}
           </div>
         </div>
       </div>

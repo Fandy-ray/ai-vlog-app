@@ -121,6 +121,78 @@ export function deleteClipById(
   return { clips: remaining, duration: totalDuration(remaining) }
 }
 
+export function deleteClipRange(
+  clips: VideoClip[],
+  startTime: number,
+  endTime: number,
+): { clips: VideoClip[]; duration: number } | null {
+  if (clips.length <= 1 || endTime <= startTime) return null
+
+  const startIndex = clips.findIndex(
+    (clip) => startTime > clip.start && startTime < clip.start + clip.duration,
+  )
+  if (startIndex === -1) return null
+  const startSplit = splitClipAtIndex(clips, startIndex, startTime)
+  if (!startSplit) return null
+
+  const endIndex = startSplit.clips.findIndex(
+    (clip) => endTime > clip.start && endTime < clip.start + clip.duration,
+  )
+  if (endIndex === -1) return null
+  const endSplit = splitClipAtIndex(startSplit.clips, endIndex, endTime)
+  if (!endSplit) return null
+
+  const startBoundary = endSplit.clips.findIndex(
+    (clip) => clip.start >= startTime,
+  )
+  const endBoundary = endSplit.clips.findIndex(
+    (clip) => clip.start >= endTime,
+  )
+  if (startBoundary === -1 || endBoundary === -1 || endBoundary <= startBoundary) return null
+
+  const removedClips = endSplit.clips.slice(startBoundary, endBoundary)
+  const remaining = reindexClipStarts([
+    ...endSplit.clips.slice(0, startBoundary),
+    ...endSplit.clips.slice(endBoundary),
+  ])
+  for (const clip of removedClips) revokeClipBlobIfUnused(remaining, clip)
+  return { clips: remaining, duration: totalDuration(remaining) }
+}
+
+export function keepClipRange(
+  clips: VideoClip[],
+  startTime: number,
+  endTime: number,
+): { clips: VideoClip[]; duration: number } | null {
+  if (clips.length <= 1 || endTime <= startTime) return null
+
+  const startIndex = clips.findIndex(
+    (clip) => startTime > clip.start && startTime < clip.start + clip.duration,
+  )
+  if (startIndex === -1) return null
+  const startSplit = splitClipAtIndex(clips, startIndex, startTime)
+  if (!startSplit) return null
+
+  const endIndex = startSplit.clips.findIndex(
+    (clip) => endTime > clip.start && endTime < clip.start + clip.duration,
+  )
+  if (endIndex === -1) return null
+  const endSplit = splitClipAtIndex(startSplit.clips, endIndex, endTime)
+  if (!endSplit) return null
+
+  const startBoundary = endSplit.clips.findIndex(
+    (clip) => clip.start >= startTime,
+  )
+  const endBoundary = endSplit.clips.findIndex(
+    (clip) => clip.start >= endTime,
+  )
+  if (startBoundary === -1 || endBoundary === -1 || endBoundary <= startBoundary) return null
+
+  const keptClips = endSplit.clips.slice(startBoundary, endBoundary)
+  const remaining = reindexClipStarts(keptClips)
+  return { clips: remaining, duration: totalDuration(remaining) }
+}
+
 export const CLIP_SPEED_OPTIONS = [
   0.25, 0.5, 0.75, 1, 1.25, 1.5, 2,
 ] as const
