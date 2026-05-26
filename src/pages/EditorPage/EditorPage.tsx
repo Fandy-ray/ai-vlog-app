@@ -49,6 +49,7 @@ import { PageShell } from '@/components/PageShell'
 import { Toast } from '@/components/Toast'
 import { AIFeatureBar } from '@/components/editor/AIFeatureBar'
 import { AudioPanel } from '@/components/editor/AudioPanel'
+import { VoiceClipPanel } from '@/components/editor/VoiceClipPanel'
 import {
   MagicDoodlePanel,
   type MagicDoodleDraft,
@@ -423,6 +424,7 @@ export function EditorPage() {
   const [titleDraft, setTitleDraft] = useState(snapshot.title)
   const [isEditingTitle, setIsEditingTitle] = useState(false)
   const [activeFeature, setActiveFeature] = useState<string | null>(null)
+  const [showVoiceClipPanel, setShowVoiceClipPanel] = useState(false)
   const [doodleGenerating, setDoodleGenerating] = useState(false)
   const [doodleFramePreview, setDoodleFramePreview] = useState<string | null>(null)
   const [doodleMode, setDoodleMode] = useState<MagicDoodleMode>('sticker')
@@ -2358,13 +2360,16 @@ export function EditorPage() {
         setActiveFeature('music')
         openAudioPanel()
       }
+      setShowVoiceClipPanel(false)
       return
     }
     if (id === 'narration') {
+      setShowVoiceClipPanel(false)
       openNarrationPanel()
       return
     }
     if (id === 'doodle') {
+      setShowVoiceClipPanel(false)
       if (activeFeature !== 'doodle') {
         setIsPlaying(false)
         setDraftDoodleRange(
@@ -2377,6 +2382,12 @@ export function EditorPage() {
       closeAllPanels()
       return
     }
+    if (id === 'voice') {
+      setActiveFeature(null)
+      setShowVoiceClipPanel((prev) => !prev)
+      return
+    }
+    setShowVoiceClipPanel(false)
     setActiveFeature(id)
     show(editorToasts.featureDev(label))
   }
@@ -3063,6 +3074,17 @@ export function EditorPage() {
             onEnabledChange={setDraftNarrationEnabled}
             onConfirm={confirmNarrationPanel}
             onClose={cancelNarrationPanel}
+          />
+        )}
+
+        {showVoiceClipPanel && (
+          <VoiceClipPanel
+            busy={false}
+            onConfirm={() => {
+              setShowVoiceClipPanel(false)
+              show(editorToasts.featureDev('语音剪辑'))
+            }}
+            onClose={() => setShowVoiceClipPanel(false)}
           />
         )}
 
