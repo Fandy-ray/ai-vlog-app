@@ -1,0 +1,5 @@
+Mixkit Music License
+https://mixkit.co/license/#musicFree
+
+The 6 tracks in this folder were downloaded from mixkit.co for use in this project.
+See download-manifest.json for source IDs and URLs.

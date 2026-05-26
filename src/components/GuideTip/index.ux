@@ -1,0 +1,68 @@
+<template>
+  <div class="c-guide-tip">
+    <text class="c-guide-tip-icon">💡</text>
+    <div class="c-guide-tip-body">
+      <text class="c-guide-tip-title">{{ title }}</text>
+      <text class="c-guide-tip-desc">{{ description }}</text>
+    </div>
+  </div>
+</template>
+
+<script>
+export default {
+  props: {
+    title: {
+      type: String,
+      default: ''
+    },
+    description: {
+      type: String,
+      default: ''
+    }
+  }
+}
+</script>
+
+<style lang="less">
+@import '../../assets/styles/variables.less';
+
+.c-guide-tip {
+  flex-direction: row;
+  width: 100%;
+  padding: 20px;
+  border-radius: @radius-lg;
+  background-color: fade(@brand-primary, 6%);
+  border-width: 1px;
+  border-color: fade(@brand-primary, 15%);
+}
+
+.c-guide-tip-icon {
+  width: 56px;
+  height: 56px;
+  border-radius: 14px;
+  background-color: fade(@brand-primary, 14%);
+  text-align: center;
+  font-size: 28px;
+  padding-top: 8px;
+  margin-right: 16px;
+}
+
+.c-guide-tip-body {
+  flex: 1;
+  flex-direction: column;
+}
+
+.c-guide-tip-title {
+  font-size: 26px;
+  font-weight: bold;
+  color: @text-primary;
+}
+
+.c-guide-tip-desc {
+  font-size: 22px;
+  color: @text-secondary;
+  margin-top: 6px;
+  line-height: 34px;
+  width: 100%;
+}
+</style>

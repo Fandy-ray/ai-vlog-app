@@ -1,0 +1,170 @@
+<template>
+  <div
+    class="c-material {{ exiting ? 'anim-card-exit' : '' }} {{ lifted ? 'c-material-lift' : '' }}"
+    data-index="{{ index }}"
+    onclick="onPreview"
+    ontouchstart="onTouchStart"
+    ontouchend="onTouchEnd"
+  >
+    <div class="c-material-thumb-wrap">
+      <image
+        class="c-material-thumb"
+        if="{{ isImage }}"
+        src="{{ material.uri }}"
+        alt="{{ material.name }}"
+      ></image>
+      <div class="c-material-video" if="{{ !isImage }}">
+        <text class="c-material-play">▶</text>
+        <text class="c-material-vlabel">视频</text>
+      </div>
+      <text class="c-material-remove" data-index="{{ index }}" onclick="onRemove">×</text>
+    </div>
+    <text class="c-material-name">{{ material.name }}</text>
+    <text class="c-material-type">{{ typeLabel }}</text>
+    <text class="c-material-status" if="{{ material.status === 'uploading' }}">上传中</text>
+  </div>
+</template>
+
+<script>
+export default {
+  props: {
+    material: {
+      type: Object,
+      default: {}
+    },
+    index: {
+      type: Number,
+      default: 0
+    },
+    exiting: {
+      type: Boolean,
+      default: false
+    }
+  },
+
+  private: {
+    lifted: false,
+    isImage: true,
+    typeLabel: '图片'
+  },
+
+  onInit() {
+    this.refreshMeta()
+  },
+
+  onPropsChange() {
+    this.refreshMeta()
+  },
+
+  refreshMeta() {
+    const category = (this.material && this.material.category) || 'image'
+    this.isImage = category === 'image'
+    this.typeLabel = this.isImage ? '图片' : '视频'
+  },
+
+  onPreview() {
+    this.$emit('preview', { index: this.index })
+  },
+
+  onRemove(event) {
+    if (event && event.stopPropagation) {
+      event.stopPropagation()
+    }
+    this.$emit('remove', { index: this.index })
+  },
+
+  onTouchStart() {
+    this.lifted = true
+  },
+
+  onTouchEnd() {
+    this.lifted = false
+  }
+}
+</script>
+
+<style lang="less">
+@import '../../assets/styles/variables.less';
+
+.c-material {
+  flex-direction: column;
+  width: 48%;
+  margin-bottom: 20px;
+  padding: 12px;
+  border-radius: @radius-md;
+  background-color: @surface;
+  border-width: 1px;
+  border-color: #eef0f2;
+}
+
+.c-material-lift {
+  transform: translateY(-6px);
+}
+
+.c-material-thumb-wrap {
+  position: relative;
+  width: 100%;
+  height: 200px;
+  border-radius: @radius-sm;
+  background-color: #eef2f4;
+  margin-bottom: 12px;
+  align-items: center;
+  justify-content: center;
+}
+
+.c-material-thumb {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: @radius-sm;
+}
+
+.c-material-video {
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+}
+
+.c-material-play {
+  font-size: 40px;
+  color: @brand-primary;
+  margin-bottom: 8px;
+}
+
+.c-material-vlabel {
+  font-size: 22px;
+  color: @text-muted;
+}
+
+.c-material-remove {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 44px;
+  height: 44px;
+  border-radius: 22px;
+  background-color: rgba(0, 0, 0, 0.55);
+  color: @white;
+  font-size: 32px;
+  text-align: center;
+}
+
+.c-material-name {
+  font-size: 26px;
+  color: @text-primary;
+  margin-bottom: 4px;
+}
+
+.c-material-type {
+  font-size: 22px;
+  color: @brand-secondary;
+}
+
+.c-material-status {
+  margin-top: 6px;
+  font-size: 20px;
+  color: @brand-warn;
+}
+</style>

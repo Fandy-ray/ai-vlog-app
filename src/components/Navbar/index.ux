@@ -1,0 +1,112 @@
+<template>
+  <div class="c-navbar" style="padding-top: {{ safeTop }}px;">
+    <div class="c-navbar-inner">
+      <div class="c-navbar-side" if="{{ showBack }}">
+        <text class="c-navbar-back" onclick="handleBack">‹</text>
+      </div>
+      <div class="c-navbar-side c-navbar-placeholder" else></div>
+
+      <text class="c-navbar-title">{{ title }}</text>
+
+      <div class="c-navbar-side c-navbar-right">
+        <text class="c-navbar-right-text" if="{{ rightText }}" onclick="handleRight">{{ rightText }}</text>
+      </div>
+    </div>
+  </div>
+</template>
+
+<script>
+export default {
+  props: {
+    title: {
+      type: String,
+      default: ''
+    },
+    showBack: {
+      type: Boolean,
+      default: false
+    },
+    safeTop: {
+      type: Number,
+      default: 0
+    },
+    rightText: {
+      type: String,
+      default: ''
+    }
+  },
+
+  handleBack() {
+    if (!this.showBack) {
+      return
+    }
+
+    this.$emit('back', {})
+  },
+
+  handleRight() {
+    if (!this.rightText) {
+      return
+    }
+
+    this.$emit('rightclick', {})
+  }
+}
+</script>
+
+<style lang="less">
+@import '../../assets/styles/variables.less';
+
+.c-navbar {
+  width: 100%;
+  background-color: @surface;
+  border-bottom-width: 1px;
+  border-bottom-color: @border-subtle;
+}
+
+.c-navbar-inner {
+  flex-direction: row;
+  align-items: center;
+  height: @nav-height;
+  padding-left: 12px;
+  padding-right: 12px;
+}
+
+.c-navbar-side {
+  width: 120px;
+  flex-direction: row;
+  align-items: center;
+}
+
+.c-navbar-placeholder {
+  width: 120px;
+}
+
+.c-navbar-back {
+  width: 72px;
+  height: @nav-height;
+  text-align: center;
+  font-size: 52px;
+  color: @text-primary;
+  padding-top: 8px;
+}
+
+.c-navbar-title {
+  flex: 1;
+  text-align: center;
+  font-size: 34px;
+  font-weight: bold;
+  color: @text-primary;
+}
+
+.c-navbar-right {
+  flex-direction: row;
+  justify-content: flex-end;
+}
+
+.c-navbar-right-text {
+  font-size: 26px;
+  color: @brand-primary;
+  padding: 12px 8px;
+}
+</style>

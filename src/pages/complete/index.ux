@@ -1,0 +1,299 @@
+<import name="c-bottom-nav" src="../../components/BottomNav/index.ux"></import>
+<import name="c-button" src="../../components/Button/index.ux"></import>
+<import name="c-recommend-card" src="../../components/RecommendCard/index.ux"></import>
+
+<template>
+  <div class="web-page-with-nav">
+    <list class="web-complete-list">
+      <list-item type="header" class="web-sticky-header">
+        <text class="web-back-btn" onclick="goBack">‹</text>
+        <text class="web-header-title web-sticky-header-center">创作完成</text>
+        <text class="web-back-btn" style="opacity: 0;">‹</text>
+      </list-item>
+
+      <list-item type="player" class="web-page-body-item">
+        <stack class="web-complete-player">
+          <video
+            if="{{ videoUrl }}"
+            class="complete-media"
+            src="{{ videoUrl }}"
+            poster="{{ cover }}"
+            controls="{{ false }}"
+          ></video>
+          <image if="{{ !videoUrl }}" class="complete-media" src="{{ cover }}"></image>
+          <div class="complete-player-mask"></div>
+          <div class="complete-play-btn" onclick="togglePlay">
+            <text class="complete-play-icon">{{ playing ? '❚❚' : '▶' }}</text>
+          </div>
+          <div class="complete-player-info">
+            <text class="complete-title">{{ title }}</text>
+            <div class="complete-progress-row">
+              <div class="complete-progress-track">
+                <div class="complete-progress-bar" style="width: {{ progressPercent }}%;"></div>
+              </div>
+              <text class="complete-duration">{{ durationLabel }}</text>
+            </div>
+          </div>
+        </stack>
+      </list-item>
+
+      <list-item type="hint" class="web-page-body-item" if="{{ !hasExport }}">
+        <text class="complete-hint">
+          在剪辑页完成编辑后，点击右上角「导出」即可生成带滤镜、文字与配乐的成片。
+        </text>
+      </list-item>
+
+      <list-item type="actions" class="web-page-body-item">
+        <div class="web-complete-actions">
+          <c-button text="下载成片" variant="outline" onclick="onDownload"></c-button>
+          <c-button text="分享" variant="accent" onclick="onShare"></c-button>
+          <c-button text="继续剪辑" variant="soft" onclick="goEditor"></c-button>
+          <c-button text="加入记忆花园" variant="outline" onclick="onGarden"></c-button>
+        </div>
+      </list-item>
+
+      <list-item type="rec-title" class="web-page-body-item">
+        <text class="web-section-title">你可能还喜欢</text>
+      </list-item>
+
+      <list-item type="rec" class="web-recommend-scroll">
+        <block for="{{ (index, item) in recommendations }}">
+          <c-recommend-card item="{{ item }}" onclick="onRecommend"></c-recommend-card>
+        </block>
+      </list-item>
+
+      <list-item type="spacer" class="web-spacer-small"></list-item>
+    </list>
+
+    <c-bottom-nav
+      active="create"
+      garden-badge="{{ 3 }}"
+      onchange="onTabChange"
+    ></c-bottom-nav>
+  </div>
+</template>
+
+<script>
+import media from '@system.media'
+import share from '@system.share'
+import $routes from '../../helper/routes'
+import $utils from '../../helper/utils'
+import { COMPLETE_VIDEO, RECOMMENDATIONS } from '../../helper/data/recommendations'
+
+export default {
+  private: {
+    title: COMPLETE_VIDEO.title,
+    cover: COMPLETE_VIDEO.cover,
+    durationLabel: COMPLETE_VIDEO.duration,
+    videoUrl: '',
+    hasExport: false,
+    exportSource: '',
+    playing: false,
+    progressPercent: 0,
+    recommendations: RECOMMENDATIONS
+  },
+
+  onInit() {
+    const exported = $editorStore.getExportedVideo()
+    if (exported) {
+      this.hasExport = true
+      this.title = exported.title || this.title
+      this.cover = exported.posterUrl || this.cover
+      this.durationLabel = exported.durationLabel || this.durationLabel
+      this.videoUrl = exported.uri || ''
+      this.exportSource = exported.source || ''
+    }
+  },
+
+  goBack() {
+    $routes.push('home')
+  },
+
+  togglePlay() {
+    if (!this.videoUrl) {
+      $utils.showToast('请先在剪辑页导出成片')
+      return
+    }
+    this.playing = !this.playing
+    if (this.playing) {
+      this.progressPercent = Math.min(100, this.progressPercent + 18)
+    }
+  },
+
+  onDownload() {
+    if (!this.hasExport || !this.videoUrl) {
+      $utils.showToast('请先在剪辑页点击「导出」生成成片')
+      return
+    }
+
+    if (!media || !media.saveToPhotosAlbum) {
+      $utils.showToast(`成片已保存：${this.videoUrl}`)
+      return
+    }
+
+    media.saveToPhotosAlbum({
+      uri: this.videoUrl,
+      success: () => {
+        $utils.showToast('已保存到系统相册')
+      },
+      fail: () => {
+        $utils.showToast('保存相册失败，请检查存储权限')
+      }
+    })
+  },
+
+  onShare() {
+    if (!this.hasExport || !this.videoUrl) {
+      $utils.showToast('请先导出成片')
+      return
+    }
+
+    if (share && share.share) {
+      share.share({
+        type: 'video/mp4',
+        data: this.videoUrl,
+        title: this.title,
+        success: () => {
+          $utils.showToast('已唤起系统分享')
+        },
+        fail: () => {
+          this.onDownload()
+        }
+      })
+      return
+    }
+
+    this.onDownload()
+    $utils.showToast('已保存到相册，可在相册中分享')
+  },
+
+  goEditor() {
+    $routes.push('editor')
+  },
+
+  onGarden() {
+    $utils.showToast('已加入记忆花园')
+  },
+
+  onRecommend(evt) {
+    const item = evt.detail.item
+    $utils.showToast(`应用风格「${item.title}」`)
+  },
+
+  onTabChange(evt) {
+    const tab = evt.detail.tab
+    if (tab === 'home') {
+      $routes.push('home')
+      return
+    }
+    if (tab === 'create') {
+      $routes.push('create')
+      return
+    }
+    $utils.showToast('功能即将开放')
+  }
+}
+</script>
+
+<style lang="less">
+@import './../../assets/styles/style.less';
+
+.web-complete-list {
+  flex: 1;
+  width: 100%;
+  background-color: @page-bg;
+}
+
+.web-page-body-item {
+  width: 100%;
+  padding: 0 @page-padding;
+}
+
+.complete-media {
+  width: 100%;
+  height: 400px;
+  object-fit: cover;
+}
+
+.complete-player-mask {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 180px;
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.6), transparent);
+}
+
+.complete-play-btn {
+  position: absolute;
+  left: 50%;
+  top: 42%;
+  width: 96px;
+  height: 96px;
+  margin-left: -48px;
+  margin-top: -48px;
+  border-radius: 48px;
+  background-color: rgba(255, 255, 255, 0.25);
+}
+
+.complete-play-icon {
+  font-size: 36px;
+  color: @white;
+  text-align: center;
+  padding-top: 24px;
+}
+
+.complete-player-info {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 24px;
+  flex-direction: column;
+}
+
+.complete-title {
+  font-size: 34px;
+  font-weight: bold;
+  color: @white;
+}
+
+.complete-progress-row {
+  flex-direction: row;
+  align-items: center;
+  margin-top: 12px;
+}
+
+.complete-progress-track {
+  flex: 1;
+  height: 8px;
+  border-radius: 4px;
+  background-color: rgba(255, 255, 255, 0.3);
+  margin-right: 12px;
+}
+
+.complete-progress-bar {
+  height: 8px;
+  border-radius: 4px;
+  background-color: @white;
+}
+
+.complete-duration {
+  font-size: 22px;
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.complete-hint {
+  font-size: 24px;
+  color: @text-muted;
+  text-align: center;
+  padding: 16px;
+  border-radius: @radius-lg;
+  background-color: @surface;
+  margin-bottom: 20px;
+}
+
+.web-spacer-small {
+  height: 140px;
+}
+</style>

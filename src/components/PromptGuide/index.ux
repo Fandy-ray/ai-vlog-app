@@ -1,0 +1,147 @@
+<template>
+  <div class="c-prompt">
+    <text class="c-prompt-label">AI 导拍提示</text>
+    <div class="c-prompt-card {{ cardAnimClass }}">
+      <text class="c-prompt-title">{{ current.title }}</text>
+      <div class="c-prompt-row">
+        <text class="c-prompt-key">拍摄建议</text>
+        <text class="c-prompt-val">{{ current.shooting }}</text>
+      </div>
+      <div class="c-prompt-row">
+        <text class="c-prompt-key">镜头运动</text>
+        <text class="c-prompt-val">{{ current.camera }}</text>
+      </div>
+      <div class="c-prompt-row">
+        <text class="c-prompt-key">环境建议</text>
+        <text class="c-prompt-val">{{ current.environment }}</text>
+      </div>
+    </div>
+    <input
+      class="c-prompt-btn"
+      type="button"
+      value="下一条建议"
+      onclick="onNext"
+    />
+  </div>
+</template>
+
+<script>
+import anim from '../../assets/js/animations'
+
+const EMPTY = {
+  title: '准备开拍',
+  shooting: '保持画面稳定',
+  camera: '固定机位',
+  environment: '选择光线充足的场景'
+}
+
+export default {
+  props: {
+    items: {
+      type: Array,
+      default: []
+    }
+  },
+
+  private: {
+    index: 0,
+    cardAnimClass: 'anim-fade-in',
+    current: EMPTY
+  },
+
+  onInit() {
+    this.syncCurrent()
+  },
+
+  onPropsChange() {
+    this.index = 0
+    this.syncCurrent()
+    this.playFadeIn()
+  },
+
+  syncCurrent() {
+    const list = this.items && this.items.length ? this.items : [EMPTY]
+    this.current = list[this.index] || EMPTY
+  },
+
+  playFadeOut() {
+    this.cardAnimClass = anim.FADE_OUT_CLASS
+  },
+
+  playFadeIn() {
+    this.cardAnimClass = anim.FADE_IN_CLASS
+  },
+
+  onNext() {
+    const list = this.items && this.items.length ? this.items : [EMPTY]
+    this.playFadeOut()
+
+    setTimeout(() => {
+      this.index = anim.nextIndex(this.index, list.length)
+      this.syncCurrent()
+      this.playFadeIn()
+      this.$emit('change', { index: this.index })
+    }, anim.DURATION_MS - 80)
+  }
+}
+</script>
+
+<style lang="less">
+@import '../../assets/styles/variables.less';
+
+.c-prompt {
+  flex-direction: column;
+  margin-bottom: 24px;
+}
+
+.c-prompt-label {
+  font-size: 28px;
+  font-weight: bold;
+  color: @text-primary;
+  margin-bottom: 14px;
+}
+
+.c-prompt-card {
+  flex-direction: column;
+  padding: 24px;
+  border-radius: @radius-md;
+  background-color: @surface;
+  border-width: 1px;
+  border-color: #eef0f2;
+  margin-bottom: 16px;
+  border-bottom-width: 4px;
+  border-bottom-color: rgba(47, 111, 88, 0.12);
+}
+
+.c-prompt-title {
+  font-size: 30px;
+  font-weight: bold;
+  color: @text-primary;
+  margin-bottom: 16px;
+}
+
+.c-prompt-row {
+  flex-direction: column;
+  margin-bottom: 12px;
+}
+
+.c-prompt-key {
+  font-size: 22px;
+  color: @brand-primary;
+  margin-bottom: 6px;
+}
+
+.c-prompt-val {
+  font-size: 24px;
+  line-height: 36px;
+  color: @text-body;
+}
+
+.c-prompt-btn {
+  height: 64px;
+  border-radius: @radius-md;
+  background-color: #e9f2ec;
+  color: @brand-primary;
+  font-size: 28px;
+}
+</style>

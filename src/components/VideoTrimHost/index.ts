@@ -1,0 +1,1 @@
+export { VideoTrimHost } from './VideoTrimHost'

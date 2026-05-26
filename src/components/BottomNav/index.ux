@@ -1,0 +1,114 @@
+<template>
+  <div class="c-bottom-nav" style="padding-bottom: {{ safeBottom }}px;">
+    <div class="c-bottom-nav-inner">
+      <block for="{{ (index, tab) in tabs }}">
+        <div class="c-bottom-nav-item" onclick="onTabTap" data-tab="{{ tab.id }}">
+          <text class="c-bottom-nav-icon {{ active === tab.id ? 'c-bottom-nav-icon-active' : '' }}">{{ tab.icon }}</text>
+          <text class="c-bottom-nav-label {{ active === tab.id ? 'c-bottom-nav-label-active' : '' }}">{{ tab.label }}</text>
+          <text class="c-bottom-nav-badge" if="{{ tab.id === 'garden' && gardenBadge > 0 }}">{{ gardenBadge }}</text>
+        </div>
+      </block>
+    </div>
+  </div>
+</template>
+
+<script>
+export default {
+  props: {
+    active: {
+      type: String,
+      default: 'home'
+    },
+    gardenBadge: {
+      type: Number,
+      default: 0
+    },
+    safeBottom: {
+      type: Number,
+      default: 0
+    }
+  },
+
+  data: {
+    tabs: [
+      { id: 'home', label: '首页', icon: '⌂' },
+      { id: 'create', label: '创作', icon: '＋' },
+      { id: 'garden', label: '花园', icon: '✿' },
+      { id: 'profile', label: '我的', icon: '☺' }
+    ]
+  },
+
+  onTabTap(evt) {
+    const tab = evt.target.attr.tab
+    this.$emit('change', { tab })
+  }
+}
+</script>
+
+<style lang="less">
+@import '../../assets/styles/variables.less';
+
+.c-bottom-nav {
+  width: 100%;
+  background-color: fade(@surface, 95%);
+  border-top-width: 1px;
+  border-top-color: fade(@border-subtle, 80%);
+}
+
+.c-bottom-nav-inner {
+  flex-direction: row;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+  padding: 12px 24px 16px 24px;
+}
+
+.c-bottom-nav-item {
+  width: 25%;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 0;
+  position: relative;
+}
+
+.c-bottom-nav-icon {
+  width: 48px;
+  height: 48px;
+  font-size: 40px;
+  color: @text-muted;
+  text-align: center;
+  margin-bottom: 6px;
+}
+
+.c-bottom-nav-icon-active {
+  color: @brand-primary;
+}
+
+.c-bottom-nav-label {
+  font-size: 18px;
+  color: @text-muted;
+  text-align: center;
+  lines: 1;
+  text-overflow: ellipsis;
+}
+
+.c-bottom-nav-label-active {
+  color: @brand-primary;
+  font-weight: bold;
+}
+
+.c-bottom-nav-badge {
+  position: absolute;
+  right: 12px;
+  top: 0;
+  min-width: 32px;
+  height: 32px;
+  border-radius: 16px;
+  background-color: @brand-accent;
+  color: @white;
+  font-size: 18px;
+  text-align: center;
+  padding: 0 8px;
+}
+</style>
