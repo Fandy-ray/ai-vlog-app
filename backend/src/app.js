@@ -15,6 +15,7 @@ const directorRouter = require('./routes/director')
 const musicRouter = require('./routes/music')
 const doodleRouter = require('./routes/doodle')
 const collaborationRouter = require('./routes/collaboration')
+const voiceRouter = require('./routes/voice')
 const { attachCollaborationWs } = require('./ws/collaborationWs')
 
 const app = express()
@@ -36,6 +37,7 @@ app.use('/api', directorRouter)
 app.use('/api', musicRouter)
 app.use('/api', doodleRouter)
 app.use('/api', collaborationRouter)
+app.use('/api', voiceRouter)
 
 app.get('/', (req, res) => {
   res.json({

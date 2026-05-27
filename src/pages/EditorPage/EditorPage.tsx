@@ -2656,6 +2656,46 @@ export function EditorPage() {
     closeAllPanels()
   }
 
+  const handleApplyTextSuggestion = (suggestion: { title: string; caption: string }) => {
+    const range = createDefaultTimeRangeFromPlayhead(projectDuration, currentTime)
+    const base = createDefaultTextOverlay(projectDuration, range.startTime, appliedTexts.length)
+    const titleText = cloneOverlay({
+      ...base,
+      content: suggestion.title,
+      fontId: 'bold',
+      color: '#FFFFFF',
+      backgroundColor: '#000000',
+      backgroundOpacity: 58,
+      width: Math.max(base.width, 84),
+      height: Math.max(base.height, 20),
+      x: 50,
+      y: 16,
+      startTime: range.startTime,
+      endTime: range.endTime,
+    })
+    const captionBase = createDefaultTextOverlay(projectDuration, range.startTime, appliedTexts.length + 1)
+    const captionText = cloneOverlay({
+      ...captionBase,
+      content: suggestion.caption,
+      fontId: 'serif',
+      color: '#FFFFFF',
+      backgroundColor: '#000000',
+      backgroundOpacity: 38,
+      width: Math.max(captionBase.width, 36),
+      height: Math.max(captionBase.height, 10),
+      x: 82,
+      y: 82,
+      startTime: range.startTime,
+      endTime: range.endTime,
+    })
+    pushEditorHistory({ textOverlays: [...syncTextsFromLive(), titleText, captionText] })
+    setDraftText(cloneOverlay(titleText))
+    setSelectedTextId(titleText.id)
+    setLiveText(cloneOverlay(titleText))
+    show(`已添加文字：${suggestion.title}`)
+    closeAllPanels()
+  }
+
   const handleDraftTextChange = (patch: Partial<TextOverlay>) => {
     setDraftText((prev) => {
       if (prev) return { ...prev, ...patch }
@@ -3284,6 +3324,8 @@ export function EditorPage() {
             onToggleCommand={handleToggleVoiceCommand}
             onApplyCommands={handleApplyVoiceCommands}
             onApplyStylePreset={handleApplyStylePreset}
+            onApplyTextSuggestion={handleApplyTextSuggestion}
+            textApiEndpoint="/api/voice/text-suggestion"
             onConfirm={() => {
               setShowVoiceClipPanel(false)
             }}

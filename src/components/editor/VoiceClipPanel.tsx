@@ -2,13 +2,18 @@ import { Check, Mic, Trash2, X } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { EditorToolPanelShell } from '@/components/editor/EditorToolPanelShell'
 
-type VoiceCommandType = 'speed' | 'delete' | 'keepRange' | 'rotate' | 'mirror' | 'preset'
+type VoiceCommandType = 'speed' | 'delete' | 'keepRange' | 'rotate' | 'mirror' | 'preset' | 'text'
 
 type VoiceCommandItem = {
   id: string
   command: VoiceCommandType
   label: string
-  payload?: { rate?: number; start?: number; end?: number; rotationSteps?: number }
+  payload?: { rate?: number; start?: number; end?: number; rotationSteps?: number; text?: string }
+}
+
+type TextAISuggestion = {
+  title: string
+  caption: string
 }
 
 type StylePresetSuggestion = {
@@ -94,6 +99,8 @@ interface VoiceClipPanelProps {
     enabled?: boolean,
   ) => void
   onApplyStylePreset?: (preset: StylePresetSuggestion) => void
+  onApplyTextSuggestion?: (suggestion: TextAISuggestion) => void
+  textApiEndpoint?: string
 }
 
 const SpeechRecognitionCtor =
@@ -108,7 +115,7 @@ const SpeechRecognitionCtor =
       }).webkitSpeechRecognition)
     : undefined
 
-export function VoiceClipPanel({ busy = false, onClose, onConfirm, onApplyCommands, onToggleCommand, onApplyStylePreset }: VoiceClipPanelProps) {
+export function VoiceClipPanel({ busy = false, onClose, onConfirm, onApplyCommands, onToggleCommand, onApplyStylePreset, onApplyTextSuggestion, textApiEndpoint }: VoiceClipPanelProps) {
   const [recording, setRecording] = useState(false)
   const [transcript, setTranscript] = useState('')
   const [displayedTranscript, setDisplayedTranscript] = useState('')
@@ -124,6 +131,17 @@ export function VoiceClipPanel({ busy = false, onClose, onConfirm, onApplyComman
     const text = transcript.replace(/^识别结果[:：\s]*/u, '').trim()
     const items: VoiceCommandItem[] = []
     const rateMatch = text.match(/([零一二两三四五六七八九十\d]+(?:\.\d+)?)\s*倍/u)
+    const titleMatch = text.match(/(?:帮我做一个|请帮我做一个|生成|写一个|做一个)(.+?)(?:标题|解说|文案|字幕|文字)/u)
+    const copyMatch = text.match(/(?:帮我写|请帮我写|生成|写一段|做一段)(.+?)(?:解说|文案|旁白|字幕|文字)/u)
+    if (titleMatch || copyMatch) {
+      const textValue = (titleMatch?.[1] ?? copyMatch?.[1] ?? '').trim()
+      items.push({
+        id: 'text',
+        command: 'text',
+        label: textValue ? `文字 · ${textValue}` : '文字内容',
+        payload: { text: textValue || text },
+      })
+    }
     if (/(倍速|加速|慢放|速度)/u.test(text)) {
       const rate = rateMatch ? String(parseNumberToken(rateMatch[1]) ?? 1.5) : '1.5'
       items.push({
@@ -172,12 +190,71 @@ export function VoiceClipPanel({ busy = false, onClose, onConfirm, onApplyComman
     return items
   }, [transcript])
 
+  const [textAiSuggestion, setTextAiSuggestion] = useState<TextAISuggestion | null>(null)
+  const [textAiLoading, setTextAiLoading] = useState(false)
+  const [textAiError, setTextAiError] = useState('')
   const stylePresetSuggestion = useMemo(() => {
     if (!transcript) return null
     const text = transcript.replace(/^识别结果[:：\s]*/u, '').trim()
     return getStylePresetSuggestion(text)
   }, [transcript])
   const isStyleApplied = Boolean(stylePresetSuggestion && appliedStyleIds.includes(stylePresetSuggestion.id))
+  const textSuggestion = useMemo(() => {
+    if (!textAiSuggestion) return null
+    return {
+      id: 'text-ai',
+      title: textAiSuggestion.title,
+      body: textAiSuggestion.caption,
+      hint: '点确认后会把 AI 生成的标题和文案应用到视频',
+    }
+  }, [textAiSuggestion])
+
+  useEffect(() => {
+    const input = transcript.replace(/^识别结果[:：\s]*/u, '').trim()
+    if (!textApiEndpoint || !input) {
+      setTextAiSuggestion(null)
+      setTextAiError('')
+      setTextAiLoading(false)
+      return
+    }
+    let cancelled = false
+    const controller = new AbortController()
+    const timer = window.setTimeout(async () => {
+      setTextAiLoading(true)
+      setTextAiError('')
+      try {
+        const response = await fetch(textApiEndpoint, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json; charset=utf-8',
+          },
+          body: JSON.stringify({ input }),
+          signal: controller.signal,
+        })
+        const data = await response.json()
+        const title = String(data?.data?.title ?? data?.title ?? '').trim()
+        const caption = String(data?.data?.caption ?? data?.caption ?? '').trim()
+        if (!cancelled && title && caption) {
+          setTextAiSuggestion({ title, caption })
+        } else if (!cancelled) {
+          setTextAiSuggestion(null)
+          setTextAiError('AI 未返回有效的标题/文案')
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setTextAiSuggestion(null)
+          setTextAiError(error instanceof Error ? error.message : 'AI 请求失败')
+        }
+      } finally {
+        if (!cancelled) setTextAiLoading(false)
+      }
+    }, 450)
+    return () => {
+      cancelled = true
+      controller.abort()
+      window.clearTimeout(timer)
+    }
+  }, [textApiEndpoint, transcript])
 
   const suggestions = useMemo(
     () => [
@@ -296,9 +373,6 @@ export function VoiceClipPanel({ busy = false, onClose, onConfirm, onApplyComman
                 onApplyCommands?.(selected)
               }
               setAppliedIds(confirmedIds)
-              if (stylePresetSuggestion) {
-                setAppliedStyleIds((prev) => (prev.includes(stylePresetSuggestion.id) ? prev : [...prev, stylePresetSuggestion.id]))
-              }
               onConfirm()
             }}
             disabled={busy || confirmedIds.length === 0}
@@ -375,11 +449,10 @@ export function VoiceClipPanel({ busy = false, onClose, onConfirm, onApplyComman
               <button
                 type="button"
                 onClick={() => {
-                  onApplyStylePreset?.(stylePresetSuggestion)
                   setAppliedStyleIds((prev) => (prev.includes(stylePresetSuggestion.id) ? prev : [...prev, stylePresetSuggestion.id]))
                 }}
-                className={`mt-2 rounded-full px-3 py-1 text-[10px] font-medium text-white transition-colors ${
-                  isStyleApplied ? 'bg-emerald-500 hover:bg-emerald-600' : 'bg-primary hover:bg-primary-dark'
+                className={`mt-2 rounded-full px-3 py-1 text-[10px] font-medium transition-colors ${
+                  isStyleApplied ? 'bg-emerald-500 text-white hover:bg-emerald-600' : 'bg-primary text-white hover:bg-primary-dark'
                 }`}
               >
                 {isStyleApplied ? '已应用' : '应用风格'}
@@ -387,6 +460,35 @@ export function VoiceClipPanel({ busy = false, onClose, onConfirm, onApplyComman
             </div>
           ) : (
             <p className="text-xs text-text-muted">说出“日常 / 科技 / 怀旧片”等词，会自动展示对应滤镜和特效。</p>
+          )}
+        </div>
+
+        <div className="rounded-[var(--radius-md)] bg-bg px-3 py-2.5">
+          <p className="mb-2 text-[10px] font-medium text-text-muted">文字建议</p>
+          {textAiLoading ? (
+            <p className="text-xs text-text-muted">AI 正在生成文字建议…</p>
+          ) : textSuggestion ? (
+            <div className="rounded-[12px] bg-white px-3 py-2.5">
+              <p className="text-xs font-medium text-text">标题：{textSuggestion.title}</p>
+              <p className="mt-0.5 text-[10px] leading-5 text-text-secondary">文案：{textSuggestion.body}</p>
+              <p className="mt-0.5 text-[10px] leading-5 text-text-muted">{textSuggestion.hint}</p>
+              <button
+                type="button"
+                onClick={() => {
+                  onApplyTextSuggestion?.({ title: textSuggestion.title, caption: textSuggestion.body })
+                  setConfirmedIds((prev) => (prev.includes(textSuggestion.id) ? prev : [...prev, textSuggestion.id]))
+                }}
+                className={`mt-2 rounded-full px-3 py-1 text-[10px] font-medium transition-colors ${
+                  confirmedIds.includes(textSuggestion.id) ? 'bg-emerald-500 text-white hover:bg-emerald-600' : 'bg-primary text-white hover:bg-primary-dark'
+                }`}
+              >
+                {confirmedIds.includes(textSuggestion.id) ? '已确认' : '确认'}
+              </button>
+            </div>
+          ) : textAiError ? (
+            <p className="text-xs text-rose-500">{textAiError}</p>
+          ) : (
+            <p className="text-xs text-text-muted">比如说“帮我做一个旅行标题”或“帮我写一个解说文案”。</p>
           )}
         </div>
 
