@@ -2643,6 +2643,19 @@ export function EditorPage() {
     }
   }
 
+  const handleApplyStylePreset = (preset: { filter: string; effect: string; title: string }) => {
+    setDraftFilterId((FILTER_PRESETS.find((f) => f.name === preset.filter)?.id ?? 'none') as string)
+    setDraftEffectId((EFFECT_PRESETS.find((e) => e.name === preset.effect)?.id ?? 'none') as string)
+    setDraftIntensity(100)
+    pushEditorHistory({
+      filterId: FILTER_PRESETS.find((f) => f.name === preset.filter)?.id ?? 'none',
+      filterIntensity: 100,
+      effectId: EFFECT_PRESETS.find((e) => e.name === preset.effect)?.id ?? 'none',
+    })
+    show(`已应用风格：${preset.title} · 滤镜 ${preset.filter}，特效 ${preset.effect}`)
+    closeAllPanels()
+  }
+
   const handleDraftTextChange = (patch: Partial<TextOverlay>) => {
     setDraftText((prev) => {
       if (prev) return { ...prev, ...patch }
@@ -3270,6 +3283,7 @@ export function EditorPage() {
             busy={false}
             onToggleCommand={handleToggleVoiceCommand}
             onApplyCommands={handleApplyVoiceCommands}
+            onApplyStylePreset={handleApplyStylePreset}
             onConfirm={() => {
               setShowVoiceClipPanel(false)
             }}

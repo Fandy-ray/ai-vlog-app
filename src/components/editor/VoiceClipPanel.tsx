@@ -2,13 +2,36 @@ import { Check, Mic, Trash2, X } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { EditorToolPanelShell } from '@/components/editor/EditorToolPanelShell'
 
-type VoiceCommandType = 'speed' | 'delete' | 'keepRange' | 'rotate' | 'mirror'
+type VoiceCommandType = 'speed' | 'delete' | 'keepRange' | 'rotate' | 'mirror' | 'preset'
 
 type VoiceCommandItem = {
   id: string
   command: VoiceCommandType
   label: string
   payload?: { rate?: number; start?: number; end?: number; rotationSteps?: number }
+}
+
+type StylePresetSuggestion = {
+  id: string
+  title: string
+  filter: string
+  effect: string
+  hint: string
+  keywords: RegExp
+}
+
+const STYLE_PRESET_SUGGESTIONS: StylePresetSuggestion[] = [
+  { id: 'daily', title: '日常', filter: '原图', effect: '无', hint: '自然真实，适合普通日常记录', keywords: /(日常|日记|vlog|记录)/u },
+  { id: 'outdoor', title: '户外活动 / 运动', filter: '暖阳', effect: '无', hint: '温暖明亮，适合户外和运动', keywords: /(户外|运动|跑步|骑行|活动|出行|旅行)/u },
+  { id: 'tech', title: '科技 / 讲解 / 产品', filter: '冷调', effect: '暗角', hint: '干净克制，突出主体和内容信息', keywords: /(科技|讲解|产品|测评|教程|拆解|发布)/u },
+  { id: 'low', title: '低落情绪片', filter: '黑白', effect: '胶片', hint: '情绪化、克制、有回忆感', keywords: /(低落|难过|失落|emo|情绪|回忆|伤感)/u },
+  { id: 'hype', title: '高能片段 / 短视频节奏点', filter: '电影', effect: '暗角', hint: '节奏更集中，适合高光和转折', keywords: /(高能|燃|节奏|卡点|高光|爆点|转场)/u },
+  { id: 'warm', title: '温暖情绪片', filter: '柔光', effect: '光晕', hint: '柔和发亮，适合温柔表达', keywords: /(温暖|治愈|柔和|光晕|温柔|暖心)/u },
+  { id: 'nostalgia', title: '怀旧片', filter: '复古', effect: '胶片', hint: '复古怀旧，适合回忆和故事感', keywords: /(怀旧|复古|回忆|老照片|年代感|往事)/u },
+]
+
+function getStylePresetSuggestion(text: string): StylePresetSuggestion | null {
+  return STYLE_PRESET_SUGGESTIONS.find((item) => item.keywords.test(text)) ?? null
 }
 
 const CHINESE_DIGIT_MAP: Record<string, number> = {
@@ -70,6 +93,7 @@ interface VoiceClipPanelProps {
     payload?: { rate?: number; start?: number; end?: number; rotationSteps?: number },
     enabled?: boolean,
   ) => void
+  onApplyStylePreset?: (preset: StylePresetSuggestion) => void
 }
 
 const SpeechRecognitionCtor =
@@ -84,13 +108,14 @@ const SpeechRecognitionCtor =
       }).webkitSpeechRecognition)
     : undefined
 
-export function VoiceClipPanel({ busy = false, onClose, onConfirm, onApplyCommands, onToggleCommand }: VoiceClipPanelProps) {
+export function VoiceClipPanel({ busy = false, onClose, onConfirm, onApplyCommands, onToggleCommand, onApplyStylePreset }: VoiceClipPanelProps) {
   const [recording, setRecording] = useState(false)
   const [transcript, setTranscript] = useState('')
   const [displayedTranscript, setDisplayedTranscript] = useState('')
   const [commands, setCommands] = useState<VoiceCommandItem[]>([])
   const [confirmedIds, setConfirmedIds] = useState<string[]>([])
   const [appliedIds, setAppliedIds] = useState<string[]>([])
+  const [appliedStyleIds, setAppliedStyleIds] = useState<string[]>([])
   const [speechSupported] = useState(Boolean(SpeechRecognitionCtor))
   const [waveSeed, setWaveSeed] = useState(0)
   const recognitionRef = useRef<SpeechRecognition | null>(null)
@@ -110,12 +135,13 @@ export function VoiceClipPanel({ busy = false, onClose, onConfirm, onApplyComman
     }
     const rangeMatch = parseRangeTokens(text)
     if (/(删除|删掉|移除|去掉)/u.test(text)) {
-      const rangeLabel = rangeMatch ? `删除 ${rangeMatch.start} 到 ${rangeMatch.end} 秒` : '删除片段'
+      const start = rangeMatch?.start ?? 0
+      const end = rangeMatch?.end ?? 0
       items.push({
-        id: 'delete',
+        id: 'split-start-delete',
         command: 'delete',
-        label: rangeLabel,
-        payload: rangeMatch ? { start: rangeMatch.start, end: rangeMatch.end } : undefined,
+        label: rangeMatch ? `删除 ${start} 到 ${end} 秒` : '删除片段',
+        payload: rangeMatch ? { start, end } : undefined,
       })
     }
     if (/(保留|保留.*?到|保留.*?时间段)/u.test(text)) {
@@ -145,6 +171,13 @@ export function VoiceClipPanel({ busy = false, onClose, onConfirm, onApplyComman
     }
     return items
   }, [transcript])
+
+  const stylePresetSuggestion = useMemo(() => {
+    if (!transcript) return null
+    const text = transcript.replace(/^识别结果[:：\s]*/u, '').trim()
+    return getStylePresetSuggestion(text)
+  }, [transcript])
+  const isStyleApplied = Boolean(stylePresetSuggestion && appliedStyleIds.includes(stylePresetSuggestion.id))
 
   const suggestions = useMemo(
     () => [
@@ -214,7 +247,7 @@ export function VoiceClipPanel({ busy = false, onClose, onConfirm, onApplyComman
     const recognition = recognitionRef.current
     if (!speechSupported || !recognition) {
       if (!recording && !transcript) {
-        setTranscript('识别结果：把这段速度调成 1.5 倍，然后删除 10 到 12 秒，保留 15 到 20 秒，向右旋转并镜像')
+        setTranscript('识别结果：日常，删除 10 到 12 秒，保留 15 到 20 秒，科技，低落情绪片，怀旧片，高能片段，温暖情绪片，户外活动')
       }
       setRecording((prev) => !prev)
       return
@@ -263,6 +296,9 @@ export function VoiceClipPanel({ busy = false, onClose, onConfirm, onApplyComman
                 onApplyCommands?.(selected)
               }
               setAppliedIds(confirmedIds)
+              if (stylePresetSuggestion) {
+                setAppliedStyleIds((prev) => (prev.includes(stylePresetSuggestion.id) ? prev : [...prev, stylePresetSuggestion.id]))
+              }
               onConfirm()
             }}
             disabled={busy || confirmedIds.length === 0}
@@ -325,6 +361,33 @@ export function VoiceClipPanel({ busy = false, onClose, onConfirm, onApplyComman
           <p className="text-xs leading-5 text-text">
             {displayedTranscript || transcript || '识别文本会显示在这里，支持后续剪辑定位。'}
           </p>
+        </div>
+
+        <div className="rounded-[var(--radius-md)] bg-bg px-3 py-2.5">
+          <p className="mb-2 text-[10px] font-medium text-text-muted">风格建议</p>
+          {stylePresetSuggestion ? (
+            <div className="rounded-[12px] bg-white px-3 py-2.5">
+              <p className="text-xs font-medium text-text">{stylePresetSuggestion.title}</p>
+              <p className="mt-0.5 text-[10px] leading-5 text-text-secondary">
+                滤镜：{stylePresetSuggestion.filter} · 特效：{stylePresetSuggestion.effect}
+              </p>
+              <p className="mt-0.5 text-[10px] leading-5 text-text-muted">{stylePresetSuggestion.hint}</p>
+              <button
+                type="button"
+                onClick={() => {
+                  onApplyStylePreset?.(stylePresetSuggestion)
+                  setAppliedStyleIds((prev) => (prev.includes(stylePresetSuggestion.id) ? prev : [...prev, stylePresetSuggestion.id]))
+                }}
+                className={`mt-2 rounded-full px-3 py-1 text-[10px] font-medium text-white transition-colors ${
+                  isStyleApplied ? 'bg-emerald-500 hover:bg-emerald-600' : 'bg-primary hover:bg-primary-dark'
+                }`}
+              >
+                {isStyleApplied ? '已应用' : '应用风格'}
+              </button>
+            </div>
+          ) : (
+            <p className="text-xs text-text-muted">说出“日常 / 科技 / 怀旧片”等词，会自动展示对应滤镜和特效。</p>
+          )}
         </div>
 
         <div className="rounded-[var(--radius-md)] bg-bg px-3 py-2.5">
