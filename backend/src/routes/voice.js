@@ -27,11 +27,11 @@ function extractJson(text) {
 }
 
 router.post('/voice/text-suggestion', async (req, res) => {
-  const appKey = process.env.VIVO_APP_KEY
+  const appKey = process.env.VIVO_AIGC_APP_KEY || process.env.VIVO_APP_KEY
   if (!appKey) {
     return res.status(500).json({
       code: 500,
-      message: '缺少 VIVO_APP_KEY 环境变量',
+      message: '缺少 VIVO_AIGC_APP_KEY 或 VIVO_APP_KEY 环境变量',
     })
   }
 
@@ -100,6 +100,87 @@ router.post('/voice/text-suggestion', async (req, res) => {
     return res.status(status).json({
       code: status,
       message: data?.message || error.message || '调用 AI 接口失败',
+      detail: data || null,
+    })
+  }
+})
+
+router.post('/voice/parse-commands', async (req, res) => {
+  const appKey = process.env.VIVO_AIGC_APP_KEY || process.env.VIVO_APP_KEY
+  if (!appKey) {
+    return res.status(500).json({
+      code: 500,
+      message: '缺少 VIVO_AIGC_APP_KEY 或 VIVO_APP_KEY 环境变量',
+    })
+  }
+
+  const userInput = String(req.body?.text || req.body?.input || '').trim()
+  if (!userInput) {
+    return res.status(400).json({ code: 400, message: 'text 不能为空' })
+  }
+
+  const requestId = randomUUID()
+  const systemPrompt = [
+    '你是短视频剪辑语音助手。把用户的口语指令解析为 JSON。',
+    '只输出 JSON，不要解释。格式：',
+    '{"commands":[{"type":"delete|keep|speed|rotate|mirror|bgm|music|transition|split|filter|effect|seek|mute|unmute|crop|narration|audio","start":12,"end":13,"time":5,"rate":2,"direction":"left|right","text":"描述","filterId":"soft","effectId":"light","transition":"fade","transitionDuration":0.5}]}',
+    '规则：',
+    '- type=delete：删除时间段，需要 start/end（秒）',
+    '- type=keep：只保留时间段',
+    '- type=speed：倍速，rate 为数字（二倍速=2）',
+    '- type=rotate：direction 为 left 或 right；可选 rate 表示角度（默认 90）',
+    '- type=mirror：镜像',
+    '- type=bgm 或 music：给视频配乐，text 为用户想要的音乐风格描述',
+    '- type=transition：在 time（秒）处加转场；transition 为 fade|dissolve|wipe；可说「第5秒加转场」',
+    '- type=split：在 time 处分割片段',
+    '- type=filter：filterId 为 warm|cool|soft|bw|cinematic|vintage|fresh|vivid|none',
+    '- type=effect：effectId 为 vignette|film|grain|light|dream|sparkle|snow|none',
+    '- type=seek：跳转到 time 秒',
+    '- type=mute：关闭原声；type=unmute：保留原声',
+    '- type=crop：进入裁剪；type=narration：旁白，text 为文稿',
+    '- type=audio：打开音频面板选曲',
+    '- 无法理解的不要编造，commands 可为空数组',
+  ].join('\n')
+
+  try {
+    const response = await axios.post(
+      VIVO_API_URL,
+      {
+        model: process.env.VIVO_TEXT_MODEL || DEFAULT_MODEL,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userInput },
+        ],
+        stream: false,
+        temperature: 0.2,
+        max_tokens: 512,
+        reasoning_effort: 'minimal',
+      },
+      {
+        headers: {
+          'Content-Type': 'application/json; charset=utf-8',
+          Authorization: `Bearer ${appKey}`,
+        },
+        params: { request_id: requestId },
+        timeout: 45000,
+      },
+    )
+
+    const content = response.data?.choices?.[0]?.message?.content ?? ''
+    const parsed = extractJson(content) || {}
+    const commands = Array.isArray(parsed.commands) ? parsed.commands : []
+
+    return res.json({
+      code: 0,
+      message: 'ok',
+      data: { requestId, commands, raw: content },
+    })
+  } catch (error) {
+    const status = error?.response?.status || 500
+    const data = error?.response?.data
+    return res.status(status).json({
+      code: status,
+      message: data?.message || error.message || '解析指令失败',
       detail: data || null,
     })
   }
