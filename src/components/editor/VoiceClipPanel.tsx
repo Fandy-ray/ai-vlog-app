@@ -1,28 +1,63 @@
 import { Check, Mic, Trash2, X } from 'lucide-react'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { fetchVoiceCommandsFromAi } from '@/api/voiceParse'
 import { EditorToolPanelShell } from '@/components/editor/EditorToolPanelShell'
+import {
+  normalizeVoiceTranscript,
+  parseVoiceCommands,
+} from '@/utils/voiceCommandParser'
 
-type VoiceCommandType = 'speed' | 'delete' | 'keepRange' | 'rotate' | 'mirror' | 'preset' | 'text'
+export type VoiceCommandType =
+  | 'speed'
+  | 'delete'
+  | 'keepRange'
+  | 'rotate'
+  | 'mirror'
+  | 'bgm'
+  | 'preset'
+  | 'text'
+  | 'transition'
+  | 'split'
+  | 'filter'
+  | 'effect'
+  | 'seek'
+  | 'muteOriginal'
+  | 'unmuteOriginal'
+  | 'crop'
+  | 'narration'
+  | 'openAudio'
 
-type VoiceCommandItem = {
+export type VoiceCommandItem = {
   id: string
   command: VoiceCommandType
   label: string
-  payload?: { rate?: number; start?: number; end?: number; rotationSteps?: number; text?: string }
+  payload?: {
+    rate?: number
+    start?: number
+    end?: number
+    time?: number
+    rotationSteps?: number
+    rotationDelta?: number
+    text?: string
+    filterId?: string
+    effectId?: string
+    transitionKind?: 'fade' | 'dissolve' | 'wipe'
+    transitionDuration?: number
+  }
 }
 
-type TextAISuggestion = {
-  title: string
-  caption: string
-}
-
-type StylePresetSuggestion = {
+export type StylePresetSuggestion = {
   id: string
   title: string
   filter: string
   effect: string
   hint: string
   keywords: RegExp
+}
+
+type TextAISuggestion = {
+  title: string
+  caption: string
 }
 
 const STYLE_PRESET_SUGGESTIONS: StylePresetSuggestion[] = [
@@ -39,65 +74,11 @@ function getStylePresetSuggestion(text: string): StylePresetSuggestion | null {
   return STYLE_PRESET_SUGGESTIONS.find((item) => item.keywords.test(text)) ?? null
 }
 
-const CHINESE_DIGIT_MAP: Record<string, number> = {
-  零: 0,
-  一: 1,
-  二: 2,
-  两: 2,
-  三: 3,
-  四: 4,
-  五: 5,
-  六: 6,
-  七: 7,
-  八: 8,
-  九: 9,
-  十: 10,
-}
-
-function parseNumberToken(token: string): number | null {
-  const normalized = token.trim()
-  if (!normalized) return null
-  if (/^\d+(?:\.\d+)?$/.test(normalized)) return Number(normalized)
-  if (/^[零一二两三四五六七八九十]+$/.test(normalized)) {
-    if (normalized === '十') return 10
-    if (normalized.length === 2 && normalized.startsWith('十')) {
-      return 10 + (CHINESE_DIGIT_MAP[normalized[1]] ?? 0)
-    }
-    if (normalized.length === 2 && normalized.endsWith('十')) {
-      return (CHINESE_DIGIT_MAP[normalized[0]] ?? 0) * 10
-    }
-    if (normalized.includes('十')) {
-      const [head, tail] = normalized.split('十')
-      const tens = head ? (CHINESE_DIGIT_MAP[head] ?? 0) : 1
-      const ones = tail ? (CHINESE_DIGIT_MAP[tail] ?? 0) : 0
-      return tens * 10 + ones
-    }
-    return normalized.split('').reduce((sum, ch) => sum * 10 + (CHINESE_DIGIT_MAP[ch] ?? 0), 0)
-  }
-  return null
-}
-
-function parseRangeTokens(text: string): { start: number; end: number } | null {
-  const match = text.match(/([零一二两三四五六七八九十\d]+)\s*(?:到|[-–—~至])\s*([零一二两三四五六七八九十\d]+)/u)
-  if (!match) return null
-  const start = parseNumberToken(match[1])
-  const end = parseNumberToken(match[2])
-  if (start == null || end == null) return null
-  return { start, end }
-}
-
 interface VoiceClipPanelProps {
   busy?: boolean
   onClose: () => void
   onConfirm: () => void
-  onApplyCommands?: (
-    commands: VoiceCommandItem[],
-  ) => void
-  onToggleCommand?: (
-    command: VoiceCommandType,
-    payload?: { rate?: number; start?: number; end?: number; rotationSteps?: number },
-    enabled?: boolean,
-  ) => void
+  onApplyCommands?: (commands: VoiceCommandItem[]) => void
   onApplyStylePreset?: (preset: StylePresetSuggestion) => void
   onApplyTextSuggestion?: (suggestion: TextAISuggestion) => void
   textApiEndpoint?: string
@@ -115,89 +96,152 @@ const SpeechRecognitionCtor =
       }).webkitSpeechRecognition)
     : undefined
 
-export function VoiceClipPanel({ busy = false, onClose, onConfirm, onApplyCommands, onToggleCommand, onApplyStylePreset, onApplyTextSuggestion, textApiEndpoint }: VoiceClipPanelProps) {
+function mapSpeechRecognitionError(code: string): string {
+  switch (code) {
+    case 'not-allowed':
+    case 'service-not-allowed':
+      return '麦克风权限被拒绝，请在地址栏或系统设置中允许本站使用麦克风'
+    case 'no-speech':
+      return '未检测到语音，请靠近麦克风并提高音量后再试一次'
+    case 'network':
+      return '语音识别需连接 Google 语音服务（Chrome 内置），请检查网络或换用可访问外网的环境'
+    case 'aborted':
+      return '识别已中断，请重新点击麦克风'
+    case 'audio-capture':
+      return '无法打开麦克风，请检查系统是否已连接并授权'
+    case 'language-not-supported':
+      return '当前环境不支持中文语音识别，请换用 Chrome 桌面版'
+    default:
+      return code ? `语音识别失败（${code}）` : '语音识别失败，请重试'
+  }
+}
+
+function collectTranscriptFromEvent(event: SpeechRecognitionEvent): string {
+  let text = ''
+  for (let i = 0; i < event.results.length; i += 1) {
+    text += event.results[i]?.[0]?.transcript ?? ''
+  }
+  return text.trim()
+}
+
+function createSpeechRecognition(): SpeechRecognition | null {
+  if (!SpeechRecognitionCtor) return null
+  const recognition = new SpeechRecognitionCtor()
+  recognition.lang = 'zh-CN'
+  recognition.interimResults = true
+  recognition.continuous = true
+  recognition.maxAlternatives = 1
+  return recognition
+}
+
+const VOICE_USAGE_TIPS = [
+  '转场：「在第 5 秒加一点转场，让视频更流畅」',
+  '删除：「把 12 到 13 秒删掉」',
+  '滤镜/特效：「加柔光滤镜」「加光晕特效」',
+  '分割：「在第 8 秒切开」· 原声：「关掉原声」',
+]
+
+const EDITABLE_VOICE_COMMANDS = new Set<VoiceCommandType>([
+  'speed',
+  'delete',
+  'keepRange',
+  'rotate',
+  'mirror',
+  'bgm',
+  'transition',
+  'split',
+  'filter',
+  'effect',
+  'seek',
+  'muteOriginal',
+  'unmuteOriginal',
+  'crop',
+  'narration',
+  'openAudio',
+])
+
+export function VoiceClipPanel({
+  busy = false,
+  onClose,
+  onConfirm,
+  onApplyCommands,
+  onApplyStylePreset,
+  onApplyTextSuggestion,
+  textApiEndpoint,
+}: VoiceClipPanelProps) {
   const [recording, setRecording] = useState(false)
   const [transcript, setTranscript] = useState('')
   const [displayedTranscript, setDisplayedTranscript] = useState('')
+  const [speechError, setSpeechError] = useState('')
   const [commands, setCommands] = useState<VoiceCommandItem[]>([])
   const [confirmedIds, setConfirmedIds] = useState<string[]>([])
-  const [appliedIds, setAppliedIds] = useState<string[]>([])
   const [appliedStyleIds, setAppliedStyleIds] = useState<string[]>([])
   const [speechSupported] = useState(Boolean(SpeechRecognitionCtor))
+  const [secureContext] = useState(
+    () => typeof window === 'undefined' || window.isSecureContext,
+  )
   const [waveSeed, setWaveSeed] = useState(0)
   const recognitionRef = useRef<SpeechRecognition | null>(null)
+  const wantRecordingRef = useRef(false)
+  const transcriptRef = useRef('')
+  transcriptRef.current = transcript
+  const [aiCommands, setAiCommands] = useState<VoiceCommandItem[]>([])
+  const [aiParsing, setAiParsing] = useState(false)
+
+  const localCommands = useMemo(
+    () => parseVoiceCommands(transcript) as VoiceCommandItem[],
+    [transcript],
+  )
+
   const parsedCommands = useMemo<VoiceCommandItem[]>(() => {
-    if (!transcript) return []
-    const text = transcript.replace(/^识别结果[:：\s]*/u, '').trim()
-    const items: VoiceCommandItem[] = []
-    const rateMatch = text.match(/([零一二两三四五六七八九十\d]+(?:\.\d+)?)\s*倍/u)
-    const titleMatch = text.match(/(?:帮我做一个|请帮我做一个|生成|写一个|做一个)(.+?)(?:标题|解说|文案|字幕|文字)/u)
-    const copyMatch = text.match(/(?:帮我写|请帮我写|生成|写一段|做一段)(.+?)(?:解说|文案|旁白|字幕|文字)/u)
-    if (titleMatch || copyMatch) {
-      const textValue = (titleMatch?.[1] ?? copyMatch?.[1] ?? '').trim()
-      items.push({
-        id: 'text',
-        command: 'text',
-        label: textValue ? `文字 · ${textValue}` : '文字内容',
-        payload: { text: textValue || text },
-      })
+    if (localCommands.length) return localCommands
+    return aiCommands
+  }, [localCommands, aiCommands])
+
+  const normalizedForStyle = useMemo(
+    () => normalizeVoiceTranscript(transcript),
+    [transcript],
+  )
+
+  useEffect(() => {
+    if (localCommands.length > 0) {
+      setAiCommands([])
+      return
     }
-    if (/(倍速|加速|慢放|速度)/u.test(text)) {
-      const rate = rateMatch ? String(parseNumberToken(rateMatch[1]) ?? 1.5) : '1.5'
-      items.push({
-        id: 'speed',
-        command: 'speed',
-        label: `${rate} 倍速`,
-        payload: { rate: Number(rate) },
-      })
+    const text = normalizeVoiceTranscript(transcript)
+    if (text.length < 4) {
+      setAiCommands([])
+      return
     }
-    const rangeMatch = parseRangeTokens(text)
-    if (/(删除|删掉|移除|去掉)/u.test(text)) {
-      const start = rangeMatch?.start ?? 0
-      const end = rangeMatch?.end ?? 0
-      items.push({
-        id: 'split-start-delete',
-        command: 'delete',
-        label: rangeMatch ? `删除 ${start} 到 ${end} 秒` : '删除片段',
-        payload: rangeMatch ? { start, end } : undefined,
-      })
+
+    let cancelled = false
+    const timer = window.setTimeout(() => {
+      setAiParsing(true)
+      void fetchVoiceCommandsFromAi(text)
+        .then((items) => {
+          if (!cancelled) setAiCommands(items as VoiceCommandItem[])
+        })
+        .catch(() => {
+          if (!cancelled) setAiCommands([])
+        })
+        .finally(() => {
+          if (!cancelled) setAiParsing(false)
+        })
+    }, 700)
+
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
     }
-    if (/(保留|保留.*?到|保留.*?时间段)/u.test(text)) {
-      const start = rangeMatch?.start ?? 15
-      const end = rangeMatch?.end ?? 20
-      items.push({
-        id: 'keepRange',
-        command: 'keepRange',
-        label: `保留 ${start} 到 ${end} 秒`,
-        payload: { start, end },
-      })
-    }
-    if (/(旋转|转向|向左转|向右转|向左旋转|向右旋转)/u.test(text)) {
-      const isLeft = /向左转|向左旋转/u.test(text)
-      const isRight = /向右转|向右旋转/u.test(text)
-      const label = isLeft ? '向左旋转' : isRight ? '向右旋转' : '旋转片段'
-      items.push({
-        id: 'rotate',
-        command: 'rotate',
-        label,
-        payload: { rotationSteps: isLeft ? 3 : 1 },
-      })
-    }
-    if (/(镜像|翻转)/u.test(text)) {
-      const label = /左右|水平/u.test(text) ? '左右镜像' : '镜像片段'
-      items.push({ id: 'mirror', command: 'mirror', label })
-    }
-    return items
-  }, [transcript])
+  }, [transcript, localCommands.length])
 
   const [textAiSuggestion, setTextAiSuggestion] = useState<TextAISuggestion | null>(null)
   const [textAiLoading, setTextAiLoading] = useState(false)
   const [textAiError, setTextAiError] = useState('')
   const stylePresetSuggestion = useMemo(() => {
-    if (!transcript) return null
-    const text = transcript.replace(/^识别结果[:：\s]*/u, '').trim()
-    return getStylePresetSuggestion(text)
-  }, [transcript])
+    if (!normalizedForStyle) return null
+    return getStylePresetSuggestion(normalizedForStyle)
+  }, [normalizedForStyle])
   const isStyleApplied = Boolean(stylePresetSuggestion && appliedStyleIds.includes(stylePresetSuggestion.id))
   const textSuggestion = useMemo(() => {
     if (!textAiSuggestion) return null
@@ -256,45 +300,62 @@ export function VoiceClipPanel({ busy = false, onClose, onConfirm, onApplyComman
     }
   }, [textApiEndpoint, transcript])
 
-  const suggestions = useMemo(
-    () => [
-      '删除静音片段，保留口播高能部分',
-      '在停顿处切镜头，让节奏更紧凑',
-      '保留前 3 秒原声，后半段切入音乐',
-    ],
-    [],
-  )
-
   useEffect(() => {
     setCommands(parsedCommands)
   }, [parsedCommands])
 
-  useEffect(() => {
-    const Recognition = SpeechRecognitionCtor
-    if (!Recognition) return
-    const recognition = new Recognition()
-    recognition.lang = 'zh-CN'
-    recognition.interimResults = true
-    recognition.continuous = true
+  const bindRecognitionHandlers = useCallback((recognition: SpeechRecognition) => {
     recognition.onresult = (event) => {
-      const text = Array.from(event.results)
-        .map((result) => result[0]?.transcript ?? '')
-        .join('')
-        .trim()
-      if (text) setTranscript(text)
+      const text = collectTranscriptFromEvent(event)
+      if (text) {
+        setTranscript(text)
+        setSpeechError('')
+      }
     }
     recognition.onend = () => {
+      if (wantRecordingRef.current) {
+        try {
+          recognition.start()
+        } catch {
+          wantRecordingRef.current = false
+          setRecording(false)
+        }
+        return
+      }
       setRecording(false)
     }
-    recognition.onerror = () => {
-      setRecording(false)
-    }
-    recognitionRef.current = recognition
-    return () => {
-      recognition.stop()
-      recognitionRef.current = null
+    recognition.onerror = (event) => {
+      const code = event.error || ''
+      if (code === 'no-speech' && transcriptRef.current) return
+      if (code !== 'aborted') {
+        setSpeechError(mapSpeechRecognitionError(code))
+      }
+      if (code === 'not-allowed' || code === 'service-not-allowed' || code === 'network') {
+        wantRecordingRef.current = false
+        setRecording(false)
+      }
     }
   }, [])
+
+  useEffect(() => {
+    if (!SpeechRecognitionCtor) return
+    const recognition = createSpeechRecognition()
+    if (!recognition) return
+    bindRecognitionHandlers(recognition)
+    recognitionRef.current = recognition
+    return () => {
+      wantRecordingRef.current = false
+      recognition.onresult = null
+      recognition.onend = null
+      recognition.onerror = null
+      try {
+        recognition.stop()
+      } catch {
+        /* ignore */
+      }
+      recognitionRef.current = null
+    }
+  }, [bindRecognitionHandlers])
 
   useEffect(() => {
     if (!recording) return
@@ -321,34 +382,73 @@ export function VoiceClipPanel({ busy = false, onClose, onConfirm, onApplyComman
 
   const toggleRecording = () => {
     if (busy) return
-    const recognition = recognitionRef.current
-    if (!speechSupported || !recognition) {
+
+    if (!speechSupported) {
+      setSpeechError('当前浏览器不支持语音识别，请使用 Chrome 或 Edge 桌面版')
       if (!recording && !transcript) {
-        setTranscript('识别结果：日常，删除 10 到 12 秒，保留 15 到 20 秒，科技，低落情绪片，怀旧片，高能片段，温暖情绪片，户外活动')
+        setTranscript(
+          '识别结果：日常，删除 10 到 12 秒，保留 15 到 20 秒，科技，低落情绪片，怀旧片，高能片段，温暖情绪片，户外活动',
+        )
       }
       setRecording((prev) => !prev)
       return
     }
+
+    if (!secureContext) {
+      setSpeechError('请用 https:// 或 http://localhost:5173 打开页面，局域网 IP 地址下麦克风识别通常不可用')
+      return
+    }
+
+    let recognition = recognitionRef.current
+    if (!recognition) {
+      recognition = createSpeechRecognition()
+      if (!recognition) {
+        setSpeechError('无法初始化语音识别，请刷新页面后重试')
+        return
+      }
+      bindRecognitionHandlers(recognition)
+      recognitionRef.current = recognition
+    }
+
     if (recording) {
-      recognition.stop()
+      wantRecordingRef.current = false
+      try {
+        recognition.stop()
+      } catch {
+        /* ignore */
+      }
       setRecording(false)
       return
     }
+
+    setSpeechError('')
     setTranscript('')
     setDisplayedTranscript('')
+    wantRecordingRef.current = true
     setRecording(true)
-    recognition.start()
+    try {
+      recognition.start()
+    } catch {
+      wantRecordingRef.current = false
+      setRecording(false)
+      setSpeechError('无法开始录音，请稍等 1 秒后再点麦克风')
+    }
   }
 
   const reset = () => {
     if (busy) return
-    recognitionRef.current?.stop()
+    wantRecordingRef.current = false
+    try {
+      recognitionRef.current?.stop()
+    } catch {
+      /* ignore */
+    }
     setRecording(false)
     setTranscript('')
     setDisplayedTranscript('')
+    setSpeechError('')
     setCommands([])
     setConfirmedIds([])
-    setAppliedIds([])
   }
 
   return (
@@ -368,12 +468,21 @@ export function VoiceClipPanel({ busy = false, onClose, onConfirm, onApplyComman
           <button
             type="button"
             onClick={() => {
-              const selected = commands.filter((item) => confirmedIds.includes(item.id))
-              if (selected.length > 0) {
-                onApplyCommands?.(selected)
-              }
-              setAppliedIds(confirmedIds)
-              onConfirm()
+              void (async () => {
+                const selected = commands.filter(
+                  (item) =>
+                    confirmedIds.includes(item.id) &&
+                    EDITABLE_VOICE_COMMANDS.has(item.command),
+                )
+                if (selected.length > 0) {
+                  try {
+                    await onApplyCommands?.(selected)
+                  } catch (error) {
+                    console.error('[voice-apply]', error)
+                  }
+                }
+                onConfirm()
+              })()
             }}
             disabled={busy || confirmedIds.length === 0}
             className="flex h-8 w-8 items-center justify-center rounded-full bg-primary text-white shadow-[var(--shadow-soft)] transition-all hover:bg-primary-dark active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
@@ -424,17 +533,32 @@ export function VoiceClipPanel({ busy = false, onClose, onConfirm, onApplyComman
               </>
             ) : (
               <span className="text-[10px] text-text-muted">
-                {speechSupported ? '点击麦克风开始说话' : '当前浏览器不支持语音识别'}
+                {speechSupported
+                  ? secureContext
+                    ? '点击麦克风开始说话（需允许麦克风）'
+                    : '请用 localhost 打开本页后再试'
+                  : '当前浏览器不支持语音识别'}
               </span>
             )}
           </div>
         </div>
+
+        {speechError ? (
+          <p className="rounded-[var(--radius-md)] bg-rose-50 px-3 py-2 text-[11px] leading-5 text-rose-600">
+            {speechError}
+          </p>
+        ) : null}
 
         <div className="rounded-[var(--radius-md)] bg-bg px-3 py-2.5">
           <p className="mb-1 text-[10px] font-medium text-text-muted">识别结果</p>
           <p className="text-xs leading-5 text-text">
             {displayedTranscript || transcript || '识别文本会显示在这里，支持后续剪辑定位。'}
           </p>
+          {transcript && normalizedForStyle !== transcript.trim() ? (
+            <p className="mt-1.5 text-[10px] leading-5 text-text-muted">
+              已纠错：{normalizedForStyle}
+            </p>
+          ) : null}
         </div>
 
         <div className="rounded-[var(--radius-md)] bg-bg px-3 py-2.5">
@@ -449,7 +573,12 @@ export function VoiceClipPanel({ busy = false, onClose, onConfirm, onApplyComman
               <button
                 type="button"
                 onClick={() => {
-                  setAppliedStyleIds((prev) => (prev.includes(stylePresetSuggestion.id) ? prev : [...prev, stylePresetSuggestion.id]))
+                  onApplyStylePreset?.(stylePresetSuggestion)
+                  setAppliedStyleIds((prev) =>
+                    prev.includes(stylePresetSuggestion.id)
+                      ? prev
+                      : [...prev, stylePresetSuggestion.id],
+                  )
                 }}
                 className={`mt-2 rounded-full px-3 py-1 text-[10px] font-medium transition-colors ${
                   isStyleApplied ? 'bg-emerald-500 text-white hover:bg-emerald-600' : 'bg-primary text-white hover:bg-primary-dark'
@@ -494,6 +623,9 @@ export function VoiceClipPanel({ busy = false, onClose, onConfirm, onApplyComman
 
         <div className="rounded-[var(--radius-md)] bg-bg px-3 py-2.5">
           <p className="mb-2 text-[10px] font-medium text-text-muted">剪辑建议</p>
+          {aiParsing ? (
+            <p className="mb-2 text-[10px] text-primary">AI 正在理解你的指令…</p>
+          ) : null}
           <div className="space-y-2.5 max-h-[26vh] overflow-y-auto pr-1">
             {commands.length > 0 ? (
               commands.map((item) => {
@@ -522,25 +654,11 @@ export function VoiceClipPanel({ busy = false, onClose, onConfirm, onApplyComman
                 )
               })
             ) : (
-              suggestions.map((item) => {
-                const isConfirmed = confirmedIds.includes(item)
-                return (
-                  <div key={item} className="flex items-start gap-2 rounded-[12px] bg-white px-2.5 py-2">
-                    <div className="min-w-0 flex-1">
-                      <p className="text-xs leading-5 text-text">{item}</p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => setConfirmedIds((prev) => (prev.includes(item) ? prev : [...prev, item]))}
-                      className={`shrink-0 rounded-full px-2.5 py-1 text-[10px] font-medium transition-colors ${
-                        isConfirmed ? 'bg-emerald-100 text-emerald-700' : 'bg-primary text-white'
-                      }`}
-                    >
-                      {isConfirmed ? '已确认' : '确认'}
-                    </button>
-                  </div>
-                )
-              })
+              <ul className="space-y-1.5 text-[11px] leading-5 text-text-muted">
+                {VOICE_USAGE_TIPS.map((tip) => (
+                  <li key={tip}>· {tip}</li>
+                ))}
+              </ul>
             )}
           </div>
         </div>

@@ -1,5 +1,6 @@
 import clip5Thumb from '@/assets/images/clip-5.jpg'
 import type { ClipTransform } from '@/types/clipTransform'
+import type { ClipTransition } from '@/types/clipTransition'
 
 export const PROJECT_DURATION = 96 // seconds (01:36)
 
@@ -17,6 +18,10 @@ export interface VideoClip {
   transform?: ClipTransform
   /** 播放倍速；时间轴时长随倍速反比变化 */
   playbackRate?: number
+  /** 与上一段衔接时的入转场 */
+  transitionIn?: ClipTransition
+  /** 与下一段衔接时的出转场 */
+  transitionOut?: ClipTransition
 }
 
 export const VIDEO_CLIPS: VideoClip[] = [

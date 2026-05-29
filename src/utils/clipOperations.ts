@@ -1,7 +1,11 @@
 import type { VideoClip } from '@/data/mockProject'
 import type { ClipTransform, NormalizedCrop } from '@/types/clipTransform'
+import type { ClipTransitionKind } from '@/types/clipTransition'
+import { DEFAULT_TRANSITION_DURATION } from '@/types/clipTransition'
 
 const MIN_PART_SEC = 0.35
+/** 时间轴切点/范围端点容差（秒） */
+const TIME_EPS = 0.12
 const ROTATIONS = [0, 90, 180, 270] as const
 
 function totalDuration(clips: VideoClip[]): number {
@@ -121,39 +125,75 @@ export function deleteClipById(
   return { clips: remaining, duration: totalDuration(remaining) }
 }
 
+function findClipIndexAtTime(clips: VideoClip[], time: number): number {
+  for (let i = clips.length - 1; i >= 0; i -= 1) {
+    const clip = clips[i]
+    if (time >= clip.start - TIME_EPS && time < clip.start + clip.duration + TIME_EPS) {
+      return i
+    }
+  }
+  return -1
+}
+
+/** 在时间点切开（若已落在衔接处则不再切） */
+function splitAtTimeIfNeeded(
+  clips: VideoClip[],
+  time: number,
+): { clips: VideoClip[]; boundaryIndex: number } | null {
+  const index = findClipIndexAtTime(clips, time)
+  if (index === -1) return null
+
+  const clip = clips[index]
+  const clipEnd = clip.start + clip.duration
+
+  if (Math.abs(time - clip.start) <= TIME_EPS) {
+    return { clips, boundaryIndex: index }
+  }
+  if (Math.abs(time - clipEnd) <= TIME_EPS) {
+    return { clips, boundaryIndex: index + 1 }
+  }
+
+  const split = splitClipAtIndex(clips, index, time)
+  if (!split) return null
+
+  const boundaryIndex = split.clips.findIndex(
+    (c) => c.start >= time - TIME_EPS,
+  )
+  if (boundaryIndex === -1) return null
+  return { clips: split.clips, boundaryIndex }
+}
+
 export function deleteClipRange(
   clips: VideoClip[],
   startTime: number,
   endTime: number,
 ): { clips: VideoClip[]; duration: number } | null {
-  if (clips.length <= 1 || endTime <= startTime) return null
+  if (!clips.length || endTime <= startTime) return null
 
-  const startIndex = clips.findIndex(
-    (clip) => startTime > clip.start && startTime < clip.start + clip.duration,
-  )
-  if (startIndex === -1) return null
-  const startSplit = splitClipAtIndex(clips, startIndex, startTime)
-  if (!startSplit) return null
+  const startPrep = splitAtTimeIfNeeded(clips, startTime)
+  if (!startPrep) return null
 
-  const endIndex = startSplit.clips.findIndex(
-    (clip) => endTime > clip.start && endTime < clip.start + clip.duration,
-  )
-  if (endIndex === -1) return null
-  const endSplit = splitClipAtIndex(startSplit.clips, endIndex, endTime)
-  if (!endSplit) return null
+  let working = startPrep.clips
+  let startBoundary = startPrep.boundaryIndex
 
-  const startBoundary = endSplit.clips.findIndex(
-    (clip) => clip.start >= startTime,
-  )
-  const endBoundary = endSplit.clips.findIndex(
-    (clip) => clip.start >= endTime,
-  )
-  if (startBoundary === -1 || endBoundary === -1 || endBoundary <= startBoundary) return null
+  const endPrep = splitAtTimeIfNeeded(working, endTime)
+  if (!endPrep) return null
 
-  const removedClips = endSplit.clips.slice(startBoundary, endBoundary)
+  working = endPrep.clips
+  let endBoundary = endPrep.boundaryIndex
+
+  if (endBoundary < startBoundary) {
+    const endIdx = working.findIndex((c) => c.start >= endTime - TIME_EPS)
+    if (endIdx === -1) return null
+    endBoundary = endIdx
+  }
+
+  if (endBoundary <= startBoundary) return null
+
+  const removedClips = working.slice(startBoundary, endBoundary)
   const remaining = reindexClipStarts([
-    ...endSplit.clips.slice(0, startBoundary),
-    ...endSplit.clips.slice(endBoundary),
+    ...working.slice(0, startBoundary),
+    ...working.slice(endBoundary),
   ])
   for (const clip of removedClips) revokeClipBlobIfUnused(remaining, clip)
   return { clips: remaining, duration: totalDuration(remaining) }
@@ -164,27 +204,28 @@ export function keepClipRange(
   startTime: number,
   endTime: number,
 ): { clips: VideoClip[]; duration: number } | null {
-  if (clips.length <= 1 || endTime <= startTime) return null
+  if (!clips.length || endTime <= startTime) return null
 
   const startIndex = clips.findIndex(
-    (clip) => startTime > clip.start && startTime < clip.start + clip.duration,
+    (clip) =>
+      startTime >= clip.start && startTime < clip.start + clip.duration,
   )
   if (startIndex === -1) return null
   const startSplit = splitClipAtIndex(clips, startIndex, startTime)
   if (!startSplit) return null
 
   const endIndex = startSplit.clips.findIndex(
-    (clip) => endTime > clip.start && endTime < clip.start + clip.duration,
+    (clip) => endTime > clip.start && endTime <= clip.start + clip.duration,
   )
   if (endIndex === -1) return null
   const endSplit = splitClipAtIndex(startSplit.clips, endIndex, endTime)
   if (!endSplit) return null
 
   const startBoundary = endSplit.clips.findIndex(
-    (clip) => clip.start >= startTime,
+    (clip) => clip.start >= startTime - 0.001,
   )
   const endBoundary = endSplit.clips.findIndex(
-    (clip) => clip.start >= endTime,
+    (clip) => clip.start >= endTime - 0.001,
   )
   if (startBoundary === -1 || endBoundary === -1 || endBoundary <= startBoundary) return null
 
@@ -240,12 +281,28 @@ export function toggleClipMirror(clips: VideoClip[], clipId: string): VideoClip[
   })
 }
 
+function snapRotationDegrees(degrees: number): (typeof ROTATIONS)[number] {
+  const steps = Math.round(degrees / 90)
+  const snapped = ((steps * 90) % 360 + 360) % 360
+  return ROTATIONS.includes(snapped as (typeof ROTATIONS)[number])
+    ? (snapped as (typeof ROTATIONS)[number])
+    : 0
+}
+
 export function rotateClip(clips: VideoClip[], clipId: string): VideoClip[] {
+  return rotateClipByDelta(clips, clipId, 90)
+}
+
+/** 按角度旋转片段（正数=顺时针，负数=逆时针，与 transform.rotation 一致） */
+export function rotateClipByDelta(
+  clips: VideoClip[],
+  clipId: string,
+  deltaDegrees: number,
+): VideoClip[] {
   return clips.map((clip) => {
     if (clip.id !== clipId) return clip
     const current = clip.transform?.rotation ?? 0
-    const idx = ROTATIONS.indexOf(current)
-    const next = ROTATIONS[(idx + 1) % ROTATIONS.length]
+    const next = snapRotationDegrees(current + deltaDegrees)
     return {
       ...clip,
       transform: { ...clip.transform, rotation: next },
@@ -265,4 +322,55 @@ export function setClipCrop(
       transform: { ...clip.transform, crop },
     }
   })
+}
+
+function findJoinIndexAtTime(clips: VideoClip[], time: number): number {
+  for (let i = 0; i < clips.length - 1; i += 1) {
+    const join = clips[i].start + clips[i].duration
+    if (Math.abs(join - time) <= TIME_EPS) return i
+  }
+  return -1
+}
+
+/** 在指定时间添加转场：必要时先切开，再在衔接处写入 transitionIn/Out */
+export function applyTransitionAtTime(
+  clips: VideoClip[],
+  time: number,
+  kind: ClipTransitionKind,
+  transitionDuration = DEFAULT_TRANSITION_DURATION,
+): { clips: VideoClip[]; duration: number; joinTime: number } | null {
+  if (!clips.length) return null
+
+  let working = clips
+  let duration = totalDuration(clips)
+  let joinIndex = findJoinIndexAtTime(working, time)
+
+  if (joinIndex === -1) {
+    const split = splitClipAt(working, time)
+    if (!split) return null
+    working = split.clips
+    duration = split.duration
+    joinIndex = findJoinIndexAtTime(working, time)
+    if (joinIndex === -1) {
+      joinIndex = working.findIndex((clip, i) => {
+        if (i >= working.length - 1) return false
+        const join = clip.start + clip.duration
+        return Math.abs(join - time) < 0.6
+      })
+    }
+  }
+
+  if (joinIndex < 0 || joinIndex >= working.length - 1) return null
+
+  const dur = Math.max(0.25, Math.min(1.2, transitionDuration))
+  const transition = { kind, duration: dur }
+  const joinTime = working[joinIndex].start + working[joinIndex].duration
+
+  const updated = working.map((clip, i) => {
+    if (i === joinIndex) return { ...clip, transitionOut: transition }
+    if (i === joinIndex + 1) return { ...clip, transitionIn: transition }
+    return clip
+  })
+
+  return { clips: updated, duration, joinTime }
 }

@@ -33,13 +33,19 @@ import type { NormalizedCrop } from '@/types/clipTransform'
 import { refineCropToFillFrame } from '@/utils/videoFit'
 import type { TimelineToolId } from '@/components/editor/TimelineToolbar'
 import {
+  deleteClipAt,
   deleteClipById,
+  deleteClipRange,
+  keepClipRange,
   rotateClip,
+  rotateClipByDelta,
   setClipCrop,
   setClipPlaybackRate,
+  applyTransitionAtTime,
   splitClipAt,
   toggleClipMirror,
 } from '@/utils/clipOperations'
+import { transitionKindLabel } from '@/types/clipTransition'
 import {
   appendClipsFromImports,
   probeVideoFile,
@@ -49,7 +55,10 @@ import { PageShell } from '@/components/PageShell'
 import { Toast } from '@/components/Toast'
 import { AIFeatureBar } from '@/components/editor/AIFeatureBar'
 import { AudioPanel } from '@/components/editor/AudioPanel'
-import { VoiceClipPanel } from '@/components/editor/VoiceClipPanel'
+import {
+  VoiceClipPanel,
+  type VoiceCommandItem,
+} from '@/components/editor/VoiceClipPanel'
 import {
   MagicDoodlePanel,
   type MagicDoodleDraft,
@@ -149,6 +158,7 @@ import {
   type TimeRange,
 } from '@/utils/timeRange'
 import { generateDoodleImage, storeDoodleAsset } from '@/api/doodle'
+import { recommendBgmFromDescription } from '@/utils/recommendBgmFromDescription'
 import { addExportedVlogToGarden } from '@/utils/gardenStore'
 import { assertAiVisionAllowed, assertAlbumAccessAllowed } from '@/utils/privacySettings'
 import {
@@ -374,10 +384,13 @@ export function EditorPage() {
   }, [clips, selectedVideoClipId])
 
   useEffect(() => {
-    if (!hasStudioEditorProject() && !searchParams.get('collab')) {
+    if (
+      (!hasStudioEditorProject() || clips.length === 0) &&
+      !searchParams.get('collab')
+    ) {
       navigate('/create', { replace: true })
     }
-  }, [navigate, searchParams])
+  }, [navigate, searchParams, clips.length])
 
   const {
     state: snapshot,
@@ -642,15 +655,16 @@ export function EditorPage() {
 
   const pushEditorHistory = useCallback(
     (patch: Partial<EditorSnapshot>, duration: number = projectDuration) => {
+      const nextDuration = patch.videoDuration ?? duration
       pushHistory(
         buildSnapshot(
           snapshot,
           {
-            videoClips: clips,
-            videoDuration: duration,
             ...patch,
+            videoClips: patch.videoClips ?? clips,
+            videoDuration: nextDuration,
           },
-          duration,
+          nextDuration,
         ),
       )
     },
@@ -839,10 +853,18 @@ export function EditorPage() {
     snapshot,
   ])
 
-  const activeClip = useMemo(
-    () => getClipAtTime(currentTime, clips, projectDuration),
-    [currentTime, clips, projectDuration],
-  )
+  const activeClip = useMemo(() => {
+    if (!clips.length) {
+      return {
+        id: 'placeholder',
+        start: 0,
+        duration: Math.max(projectDuration, 1),
+        thumb: '',
+        poster: '',
+      } satisfies VideoClip
+    }
+    return getClipAtTime(currentTime, clips, projectDuration)
+  }, [currentTime, clips, projectDuration])
 
   previewVideoClockRef.current =
     Boolean(activeClip.videoSrc) && isPlaying
@@ -870,6 +892,22 @@ export function EditorPage() {
     (activeClip.sourceOffset ?? 0) +
       (currentTime - activeClip.start) * activePlaybackRate,
   )
+
+  const previewMediaOpacity = useMemo(() => {
+    const clip = activeClip
+    if (!clip.id || clip.id === 'placeholder') return 1
+    const local = currentTime - clip.start
+    const out = clip.transitionOut
+    if (out && local >= clip.duration - out.duration) {
+      const t = (clip.duration - local) / out.duration
+      return Math.max(0.12, Math.min(1, t))
+    }
+    const inn = clip.transitionIn
+    if (inn && local < inn.duration) {
+      return Math.max(0.12, Math.min(1, local / inn.duration))
+    }
+    return 1
+  }, [activeClip, currentTime])
 
   const selectedVideoClip = useMemo(
     () => clips.find((c) => c.id === selectedVideoClipId) ?? null,
@@ -904,7 +942,15 @@ export function EditorPage() {
   }, [activeClip.id, cropClipId, isCropMode])
 
   const applyClipsUpdate = useCallback(
-    (nextClips: VideoClip[], duration: number) => {
+    (
+      nextClips: VideoClip[],
+      duration: number,
+      extraPatch?: Partial<EditorSnapshot>,
+    ) => {
+      if (!nextClips.length) {
+        show('操作后没有剩余视频片段，已取消')
+        return false
+      }
       const oldDuration = projectDuration
       const durationChanged = Math.abs(duration - oldDuration) > 0.001
       const nextOriginalAudioRange = durationChanged
@@ -931,10 +977,12 @@ export function EditorPage() {
           ...(durationChanged
             ? { originalAudioRange: nextOriginalAudioRange }
             : {}),
+          ...extraPatch,
         },
         duration,
       )
       if (currentTime > duration) seek(duration)
+      return true
     },
     [
       currentTime,
@@ -942,6 +990,7 @@ export function EditorPage() {
       pushEditorHistory,
       projectDuration,
       snapshot.originalAudioRange,
+      show,
     ],
   )
 
@@ -1127,192 +1176,439 @@ export function EditorPage() {
     [selectedVideoClipId, clips, applyClipsUpdate],
   )
 
-  const handleVoiceCommand = useCallback(
-    (
-      command: 'speed' | 'delete' | 'keepRange' | 'rotate' | 'mirror',
-      payload?: { rate?: number; start?: number; end?: number },
-    ) => {
-      if (!selectedVideoClipId) {
-        show('请先选择一个视频片段')
-        return
+  const resolveVoiceTargetClipId = useCallback(
+    (clipList: VideoClip[]) => {
+      if (
+        selectedVideoClipId &&
+        clipList.some((clip) => clip.id === selectedVideoClipId)
+      ) {
+        return selectedVideoClipId
       }
-      switch (command) {
-        case 'speed': {
-          const rate = payload?.rate ?? 1.5
-          const { clips: nextClips, duration } = setClipPlaybackRate(
-            clips,
-            selectedVideoClipId,
-            rate,
-          )
-          applyClipsUpdate(nextClips, duration)
-          break
-        }
-        case 'delete': {
-          const result = deleteClipById(clips, selectedVideoClipId)
-          if (!result) {
-            show(editorToasts.deleteNeedOne)
-            return
-          }
-          applyClipsUpdate(result.clips, result.duration)
-          setSelectedVideoClipId(null)
-          break
-        }
-        case 'keepRange': {
-          const start = payload?.start ?? currentTime
-          const end = payload?.end ?? Math.min(projectDuration, start + 5)
-          if (end <= start) {
-            show('保留时间段无效')
-            return
-          }
-          const firstSplit = splitClipAt(clips, start, selectedVideoClipId)
-          if (!firstSplit) {
-            show('无法在起始点分割片段')
-            return
-          }
-          const secondSplit = splitClipAt(firstSplit.clips, end, firstSplit.secondId)
-          if (!secondSplit) {
-            show('无法在结束点分割片段')
-            return
-          }
-          const trimmed = secondSplit.clips.filter(
-            (clip) => clip.id === firstSplit.secondId || clip.id === secondSplit.secondId,
-          )
-          applyClipsUpdate(trimmed, secondSplit.duration)
-          break
-        }
-        case 'rotate': {
-          const next = rotateClip(clips, selectedVideoClipId)
-          applyClipsUpdate(next, projectDuration)
-          break
-        }
-        case 'mirror': {
-          const next = toggleClipMirror(clips, selectedVideoClipId)
-          applyClipsUpdate(next, projectDuration)
-          break
-        }
-      }
+      const atPlayhead = getClipAtTime(currentTime, clipList, projectDuration)
+      return atPlayhead?.id ?? clipList[0]?.id ?? null
     },
-    [
-      applyClipsUpdate,
-      clips,
-      currentTime,
-      projectDuration,
-      selectedVideoClipId,
-      show,
-    ],
+    [selectedVideoClipId, currentTime, projectDuration],
   )
 
-  const handleToggleVoiceCommand = useCallback(
-    (
-      command: 'speed' | 'delete' | 'keepRange' | 'rotate' | 'mirror',
-      payload?: { rate?: number; start?: number; end?: number },
-      enabled?: boolean,
-    ) => {
-      if (!enabled) return
-      show('已选中该建议，点击顶部最终确认后应用到视频')
+  const clampVoiceTimelineRange = useCallback(
+    (start: number, end: number, duration: number) => {
+      const minSpan = 0.35
+      const s = Math.max(0, Math.min(start, duration - minSpan))
+      const e = Math.max(s + minSpan, Math.min(end, duration))
+      if (e <= s) return null
+      return { start: s, end: e }
     },
-    [show],
+    [],
   )
 
   const handleApplyVoiceCommands = useCallback(
-    (commandsToApply: Array<{
-      command: 'speed' | 'delete' | 'keepRange' | 'rotate' | 'mirror'
-      payload?: { rate?: number; start?: number; end?: number; rotationSteps?: number }
-    }>) => {
-      const needsSelection = commandsToApply.some(
-        (item) => item.command === 'speed' || item.command === 'rotate' || item.command === 'mirror',
+    async (commandsToApply: VoiceCommandItem[]) => {
+      try {
+      const editableTypes = new Set([
+        'speed',
+        'delete',
+        'keepRange',
+        'rotate',
+        'mirror',
+        'bgm',
+        'transition',
+        'split',
+        'filter',
+        'effect',
+        'seek',
+        'muteOriginal',
+        'unmuteOriginal',
+        'crop',
+        'narration',
+        'openAudio',
+      ])
+      const editable = commandsToApply.filter((item) =>
+        editableTypes.has(item.command),
       )
-      if (needsSelection && !selectedVideoClipId) {
-        show('请先选择一个视频片段')
+      if (!editable.length) {
+        show('没有可应用的剪辑指令，请先确认识别出的剪辑建议')
         return
       }
-      const summaries = commandsToApply.map((item) => {
-        if (item.command === 'delete') {
-          const start = item.payload?.start
-          const end = item.payload?.end
-          return typeof start === 'number' && typeof end === 'number' && end > start
-            ? `删除 ${start} 到 ${end} 秒`
-            : '删除片段'
-        }
-        if (item.command === 'keepRange') {
-          const start = item.payload?.start ?? currentTime
-          const end = item.payload?.end ?? Math.min(projectDuration, start + 5)
-          return `保留 ${start} 到 ${end} 秒`
-        }
-        if (item.command === 'speed') return `${item.payload?.rate ?? 1.5} 倍速`
-        if (item.command === 'rotate') {
-          const steps = item.payload?.rotationSteps ?? 1
-          return steps === 3 ? '向左旋转' : '向右旋转'
-        }
-        return '镜像'
-      })
-      show(`将应用：${summaries.join('、')}`)
+
+      const bgmItems = editable.filter((item) => item.command === 'bgm')
+      const snapshotItems = editable.filter((item) =>
+        ['filter', 'effect', 'muteOriginal', 'unmuteOriginal'].includes(
+          item.command,
+        ),
+      )
+      const uiItems = editable.filter((item) =>
+        ['seek', 'crop', 'narration', 'openAudio'].includes(item.command),
+      )
+      const clipCommandOrder: Record<string, number> = {
+        delete: 0,
+        keepRange: 1,
+        split: 2,
+        speed: 3,
+        rotate: 4,
+        mirror: 5,
+        transition: 6,
+      }
+      const clipItems = editable
+        .filter(
+          (item) =>
+            item.command !== 'bgm' &&
+            !['filter', 'effect', 'muteOriginal', 'unmuteOriginal'].includes(
+              item.command,
+            ) &&
+            !['seek', 'crop', 'narration', 'openAudio'].includes(item.command),
+        )
+        .sort(
+          (a, b) =>
+            (clipCommandOrder[a.command] ?? 99) -
+            (clipCommandOrder[b.command] ?? 99),
+        )
 
       let nextClips = clips
       let nextDuration = projectDuration
-      for (const item of commandsToApply) {
+      const appliedLabels: string[] = []
+      let failed = false
+
+      for (const item of clipItems) {
         if (item.command === 'speed') {
-          const targetId = nextClips.find((clip) => clip.id === selectedVideoClipId)?.id
-          if (!targetId) continue
-          const result = setClipPlaybackRate(nextClips, targetId, item.payload?.rate ?? 1.5)
+          const targetId = resolveVoiceTargetClipId(nextClips)
+          if (!targetId) {
+            failed = true
+            continue
+          }
+          const result = setClipPlaybackRate(
+            nextClips,
+            targetId,
+            item.payload?.rate ?? 1.5,
+          )
           nextClips = result.clips
           nextDuration = result.duration
+          appliedLabels.push(`${item.payload?.rate ?? 1.5} 倍速`)
           continue
         }
+
         if (item.command === 'delete') {
           const start = item.payload?.start
           const end = item.payload?.end
-          if (typeof start === 'number' && typeof end === 'number' && end > start) {
-            const firstSplit = splitClipAt(nextClips, start, selectedVideoClipId ?? undefined)
-            if (!firstSplit) continue
-            const secondSplit = splitClipAt(firstSplit.clips, end, firstSplit.secondId)
-            if (!secondSplit) continue
-            nextClips = secondSplit.clips
-            nextDuration = secondSplit.duration
-          } else if (selectedVideoClipId) {
-            const result = splitClipAt(nextClips, currentTime, selectedVideoClipId)
-            if (!result) continue
+          if (
+            typeof start === 'number' &&
+            typeof end === 'number' &&
+            end > start
+          ) {
+            const range = clampVoiceTimelineRange(start, end, nextDuration)
+            if (!range) {
+              failed = true
+              continue
+            }
+            const result = deleteClipRange(
+              nextClips,
+              range.start,
+              range.end,
+            )
+            if (!result) {
+              show(
+                `无法删除 ${range.start}–${range.end} 秒：成片约 ${Math.round(nextDuration)} 秒；若刚在切点加了转场，请先说删除再说转场，或把范围略缩到切点内侧（如 3–4.9 秒）`,
+              )
+              failed = true
+              continue
+            }
             nextClips = result.clips
             nextDuration = result.duration
+            appliedLabels.push(`删除 ${range.start}–${range.end} 秒`)
+          } else {
+            const targetId = resolveVoiceTargetClipId(nextClips)
+            const result = targetId
+              ? deleteClipById(nextClips, targetId)
+              : deleteClipAt(nextClips, currentTime)
+            if (!result) {
+              show(editorToasts.deleteNeedOne)
+              failed = true
+              continue
+            }
+            nextClips = result.clips
+            nextDuration = result.duration
+            appliedLabels.push('删除当前片段')
           }
           continue
         }
+
         if (item.command === 'keepRange') {
           const start = item.payload?.start ?? currentTime
-          const end = item.payload?.end ?? Math.min(nextDuration, start + 5)
-          if (end <= start) continue
-          const firstSplit = splitClipAt(nextClips, start, selectedVideoClipId ?? undefined)
-          if (!firstSplit) continue
-          const secondSplit = splitClipAt(firstSplit.clips, end, firstSplit.secondId)
-          if (!secondSplit) continue
-          nextClips = secondSplit.clips
-          nextDuration = secondSplit.duration
-          continue
-        }
-        if (item.command === 'rotate') {
-          const targetId = nextClips.find((clip) => clip.id === selectedVideoClipId)?.id
-          if (!targetId) continue
-          const steps = item.payload?.rotationSteps ?? 1
-          for (let i = 0; i < steps; i += 1) {
-            nextClips = rotateClip(nextClips, targetId)
+          const end =
+            item.payload?.end ?? Math.min(nextDuration, start + 5)
+          const range = clampVoiceTimelineRange(start, end, nextDuration)
+          if (!range) {
+            show('保留时间段无效')
+            failed = true
+            continue
           }
+          const result = keepClipRange(
+            nextClips,
+            range.start,
+            range.end,
+          )
+          if (!result) {
+            show('无法保留该时间段，请换更靠中间的起止秒数')
+            failed = true
+            continue
+          }
+          nextClips = result.clips
+          nextDuration = result.duration
+          appliedLabels.push(`保留 ${range.start}–${range.end} 秒`)
           continue
         }
+
+        if (item.command === 'rotate') {
+          const targetId = resolveVoiceTargetClipId(nextClips)
+          if (!targetId) {
+            failed = true
+            continue
+          }
+          let delta = item.payload?.rotationDelta
+          if (delta == null && item.payload?.rotationSteps != null) {
+            const steps = item.payload.rotationSteps
+            delta = steps === 3 ? -90 : 90
+          }
+          nextClips = rotateClipByDelta(nextClips, targetId, delta ?? 90)
+          appliedLabels.push(item.label || '旋转片段')
+          continue
+        }
+
         if (item.command === 'mirror') {
-          const targetId = nextClips.find((clip) => clip.id === selectedVideoClipId)?.id
-          if (!targetId) continue
+          const targetId = resolveVoiceTargetClipId(nextClips)
+          if (!targetId) {
+            failed = true
+            continue
+          }
           nextClips = toggleClipMirror(nextClips, targetId)
+          appliedLabels.push('镜像')
+          continue
+        }
+
+        if (item.command === 'transition') {
+          const at =
+            item.payload?.time != null
+              ? Math.max(0, Math.min(item.payload.time, nextDuration - 0.01))
+              : currentTime
+          const kind = item.payload?.transitionKind ?? 'fade'
+          const result = applyTransitionAtTime(
+            nextClips,
+            at,
+            kind,
+            item.payload?.transitionDuration,
+          )
+          if (!result) {
+            show(
+              `无法在 ${Math.round(at)} 秒处加转场：请换更靠中间的切点（距头尾各约 0.35 秒）`,
+            )
+            failed = true
+            continue
+          }
+          nextClips = result.clips
+          nextDuration = result.duration
+          appliedLabels.push(
+            `${Math.round(result.joinTime)} 秒 · ${transitionKindLabel(kind)}转场`,
+          )
+          continue
+        }
+
+        if (item.command === 'split') {
+          const at =
+            item.payload?.time != null
+              ? Math.max(0, Math.min(item.payload.time, nextDuration - 0.01))
+              : currentTime
+          const result = splitClipAt(nextClips, at)
+          if (!result) {
+            show(`无法在第 ${Math.round(at)} 秒分割，切点太靠近片段头尾`)
+            failed = true
+            continue
+          }
+          nextClips = result.clips
+          nextDuration = result.duration
+          appliedLabels.push(`在第 ${Math.round(at)} 秒分割`)
+          continue
         }
       }
-      applyClipsUpdate(nextClips, nextDuration)
-      const safeTime = Math.min(currentTime, Math.max(0, nextDuration - 0.001))
-      const active = getClipAtTime(safeTime, nextClips, nextDuration)
-      setSelectedVideoClipId(active?.id ?? nextClips[0]?.id ?? null)
-      setIsPlaying(false)
-      seek(safeTime)
-      setShowVoiceClipPanel(false)
+
+      const snapshotPatch: Partial<EditorSnapshot> = {}
+      for (const item of snapshotItems) {
+        if (item.command === 'filter' && item.payload?.filterId) {
+          const id = item.payload.filterId
+          setDraftFilterId(id)
+          setDraftIntensity(100)
+          snapshotPatch.filterId = id
+          snapshotPatch.filterIntensity = 100
+          const name =
+            FILTER_PRESETS.find((f) => f.id === id)?.name ?? id
+          appliedLabels.push(id === 'none' ? '关闭滤镜' : `滤镜 ${name}`)
+        }
+        if (item.command === 'effect' && item.payload?.effectId) {
+          const id = item.payload.effectId
+          setDraftEffectId(id)
+          snapshotPatch.effectId = id
+          const name =
+            EFFECT_PRESETS.find((e) => e.id === id)?.name ?? id
+          appliedLabels.push(id === 'none' ? '关闭特效' : `特效 ${name}`)
+        }
+        if (item.command === 'muteOriginal') {
+          setDraftKeepOriginalAudio(false)
+          snapshotPatch.keepOriginalAudio = false
+          appliedLabels.push('已关闭原声')
+        }
+        if (item.command === 'unmuteOriginal') {
+          setDraftKeepOriginalAudio(true)
+          snapshotPatch.keepOriginalAudio = true
+          appliedLabels.push('已保留原声')
+        }
+      }
+
+      const hasSnapshotPatch = Object.keys(snapshotPatch).length > 0
+
+      if (clipItems.length) {
+        if (!nextClips.length) {
+          show('操作后没有剩余视频片段，已取消')
+          return
+        }
+        const ok = applyClipsUpdate(
+          nextClips,
+          nextDuration,
+          hasSnapshotPatch ? snapshotPatch : undefined,
+        )
+        if (!ok) return
+        const safeTime = Math.min(currentTime, Math.max(0, nextDuration - 0.001))
+        const active = getClipAtTime(safeTime, nextClips, nextDuration)
+        setSelectedVideoClipId(active?.id ?? nextClips[0]?.id ?? null)
+        setIsPlaying(false)
+        seek(safeTime)
+      } else if (hasSnapshotPatch) {
+        pushEditorHistory({
+          ...snapshotPatch,
+          videoClips: nextClips,
+          videoDuration: nextDuration,
+        })
+      }
+
+      for (const item of uiItems) {
+        if (item.command === 'seek' && item.payload?.time != null) {
+          const t = Math.max(
+            0,
+            Math.min(item.payload.time, projectDuration - 0.001),
+          )
+          setIsPlaying(false)
+          seek(t)
+          appliedLabels.push(`定位到 ${Math.round(t)} 秒`)
+        }
+        if (item.command === 'crop') {
+          const targetId = resolveVoiceTargetClipId(nextClips)
+          if (targetId) {
+            setSelectedVideoClipId(targetId)
+            setCropClipId(targetId)
+            setIsCropMode(true)
+            appliedLabels.push('进入裁剪')
+          } else {
+            failed = true
+          }
+        }
+        if (item.command === 'narration') {
+          const text = item.payload?.text?.trim()
+          if (text && text.length > 2) {
+            setDraftNarrationText(text)
+          }
+          setActiveFeature('narration')
+          setShowVoiceClipPanel(false)
+          appliedLabels.push('已打开旁白面板')
+        }
+        if (item.command === 'openAudio') {
+          setShowVoiceClipPanel(false)
+          setActiveFeature('music')
+          setDraftKeepOriginalAudio(appliedKeepOriginalAudio)
+          setDraftBgmId(appliedBgmId)
+          setDraftOriginalAudioRange(appliedOriginalAudioRange)
+          setDraftBgmRange(appliedBgmRange)
+          setActiveTool('audio')
+          appliedLabels.push('已打开音频面板')
+        }
+      }
+
+      if (bgmItems.length) {
+        const desc =
+          bgmItems[0].payload?.text?.trim() ||
+          '轻松愉快、适合 vlog 的背景音乐'
+        setShowVoiceClipPanel(false)
+        setActiveFeature('music')
+        setDraftKeepOriginalAudio(appliedKeepOriginalAudio)
+        setDraftBgmId(appliedBgmId)
+        setDraftOriginalAudioRange(appliedOriginalAudioRange)
+        setDraftBgmRange(appliedBgmRange)
+        setActiveTool('audio')
+        show('正在智能配乐…')
+        try {
+          const outcome = await recommendBgmFromDescription(desc)
+          if (!outcome.picked) {
+            show('未找到合适配乐，请在音频面板手动选曲')
+            return
+          }
+          const fullRange = createDefaultTimeRange(projectDuration)
+          const nextBgmId = outcome.picked.audio.id
+          setDraftBgmId(nextBgmId)
+          setDraftBgmRange(fullRange)
+          pushEditorHistory({
+            bgmId: nextBgmId,
+            bgmRange: fullRange,
+            videoClips: nextClips,
+            videoDuration: nextDuration,
+          })
+          const tag =
+            outcome.source === 'ai' ? 'AI 推荐' : '本地推荐'
+          appliedLabels.push(`配乐·${outcome.picked.audio.name}（${tag}）`)
+        } catch {
+          show('配乐失败，请点「智能配乐」或底部「音频」手动选择')
+        }
+      } else {
+        setShowVoiceClipPanel(false)
+      }
+
+      if (appliedLabels.length) {
+        show(`已应用：${appliedLabels.join('、')}`)
+      } else if (failed) {
+        show('部分指令未能应用，请检查时间范围或先选中片段')
+      }
+      } catch (error) {
+        console.error('[voice-apply]', error)
+        show(
+          error instanceof Error
+            ? `语音指令应用失败：${error.message}`
+            : '语音指令应用失败，请刷新页面后重试',
+        )
+      }
     },
-    [clips, currentTime, projectDuration, selectedVideoClipId, applyClipsUpdate, show, getClipAtTime, seek, setIsPlaying],
+    [
+      clips,
+      currentTime,
+      projectDuration,
+      applyClipsUpdate,
+      show,
+      getClipAtTime,
+      seek,
+      setIsPlaying,
+      resolveVoiceTargetClipId,
+      clampVoiceTimelineRange,
+      appliedKeepOriginalAudio,
+      appliedBgmId,
+      appliedOriginalAudioRange,
+      appliedBgmRange,
+      pushEditorHistory,
+      setDraftFilterId,
+      setDraftEffectId,
+      setDraftIntensity,
+      setDraftKeepOriginalAudio,
+      setDraftNarrationText,
+      setActiveFeature,
+      setActiveTool,
+      setCropClipId,
+      setIsCropMode,
+      setSelectedVideoClipId,
+      setShowVoiceClipPanel,
+    ],
   )
 
   const handleSeekRatio = useCallback(
@@ -3117,6 +3413,7 @@ export function EditorPage() {
         clipTimelineStart={activeClip.start}
         clipSourceOffset={activeClip.sourceOffset ?? 0}
         playbackRate={activePlaybackRate}
+        mediaOpacity={previewMediaOpacity}
         onTimelineSync={handlePreviewTimelineSync}
         isCropMode={isCropMode}
         cropDraft={draftCrop}
@@ -3321,7 +3618,6 @@ export function EditorPage() {
         {showVoiceClipPanel && (
           <VoiceClipPanel
             busy={false}
-            onToggleCommand={handleToggleVoiceCommand}
             onApplyCommands={handleApplyVoiceCommands}
             onApplyStylePreset={handleApplyStylePreset}
             onApplyTextSuggestion={handleApplyTextSuggestion}

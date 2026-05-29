@@ -26,6 +26,37 @@ import { drawClipMedia } from '@/utils/drawClipMedia'
 import { clamp, formatTime } from '@/utils/formatTime'
 import { isActiveAtTime } from '@/utils/timeRange'
 
+/** 跳转播放位置；拼接点用 fastSeek 并在 seek 完成后恢复播放，减轻卡顿 */
+function seekVideoElement(
+  video: HTMLVideoElement,
+  target: number,
+  options?: { resumeAfter?: boolean },
+) {
+  const safe = Math.max(0, target)
+  const resumeAfter = options?.resumeAfter ?? false
+
+  const resume = () => {
+    if (resumeAfter) void video.play().catch(() => {})
+  }
+
+  if (typeof video.fastSeek === 'function') {
+    try {
+      video.fastSeek(safe)
+      if (resumeAfter) {
+        video.addEventListener('seeked', resume, { once: true })
+      }
+      return
+    } catch {
+      /* 回退到精确 seek */
+    }
+  }
+
+  video.currentTime = safe
+  if (resumeAfter) {
+    video.addEventListener('seeked', resume, { once: true })
+  }
+}
+
 export interface StickerPreviewItem {
   overlay: StickerOverlay
   editable: boolean
@@ -64,6 +95,8 @@ interface VideoPreviewProps {
   clipSourceOffset?: number
   /** 当前片段播放倍速 */
   playbackRate?: number
+  /** 转场预览时画面透明度（0–1） */
+  mediaOpacity?: number
   /** 播放中由视频时钟回写时间轴 */
   onTimelineSync?: (timelineTime: number) => void
   currentTime: number
@@ -118,6 +151,7 @@ export const VideoPreview = forwardRef<VideoPreviewHandle, VideoPreviewProps>(fu
   clipTimelineStart = 0,
   clipSourceOffset = 0,
   playbackRate = 1,
+  mediaOpacity = 1,
   onTimelineSync,
   currentTime,
   duration,
@@ -152,7 +186,10 @@ export const VideoPreview = forwardRef<VideoPreviewHandle, VideoPreviewProps>(fu
   previewVolume = 1,
 }: VideoPreviewProps, ref) {
   const videoRef = useRef<HTMLVideoElement>(null)
-  const lastVideoSrcRef = useRef<string | undefined>(undefined)
+  const lastSeekStateRef = useRef<{
+    videoSrc?: string
+    clipTime: number
+  }>({ clipTime: 0 })
   const progressRef = useRef<HTMLDivElement>(null)
   const previewContainerRef = useRef<HTMLDivElement>(null)
   const [sourceAspect, setSourceAspect] = useState(16 / 9)
@@ -300,14 +337,27 @@ export const VideoPreview = forwardRef<VideoPreviewHandle, VideoPreviewProps>(fu
     const target = clipTime
     if (!Number.isFinite(target)) return
 
-    const sourceChanged = lastVideoSrcRef.current !== videoSrc
-    lastVideoSrcRef.current = videoSrc
+    const prev = lastSeekStateRef.current
+    const sourceChanged = prev.videoSrc !== videoSrc
     const drift = Math.abs(video.currentTime - target)
-    const threshold = isPlaying ? 0.45 : 0.06
+    /** 同文件多片段（如删除 3–5 秒后）源时间会向前跳，需快速 seek */
+    const sameFileSplice =
+      !sourceChanged &&
+      prev.videoSrc === videoSrc &&
+      drift > 0.2
+    const threshold = isPlaying
+      ? sameFileSplice
+        ? 0.15
+        : 0.4
+      : 0.06
 
-    if (sourceChanged || drift > threshold) {
-      video.currentTime = target
+    if (sourceChanged || sameFileSplice || drift > threshold) {
+      seekVideoElement(video, target, {
+        resumeAfter: isPlaying && (sourceChanged || sameFileSplice),
+      })
     }
+
+    lastSeekStateRef.current = { videoSrc, clipTime: target }
   }, [clipTime, videoSrc, isPlaying])
 
   useEffect(() => {
@@ -442,20 +492,28 @@ export const VideoPreview = forwardRef<VideoPreviewHandle, VideoPreviewProps>(fu
                 : 'relative h-full w-full'
             }
           >
-          <ClipTransformLayer transform={clipTransform} sourceAspect={sourceAspect}>
-            <FilteredMedia
-              key={videoSrc || poster}
-              src={poster}
-              alt="视频预览"
-              videoSrc={videoSrc}
-              videoRef={videoRef}
-              muted={previewMuted}
-              filterCss={filterCss}
-              intensity={filterIntensity}
-              objectFit="contain"
-              className="h-full w-full transition-opacity duration-200"
-            />
-          </ClipTransformLayer>
+          <div
+            className="absolute inset-0"
+            style={{
+              opacity: mediaOpacity,
+              transition: 'opacity 120ms linear',
+            }}
+          >
+            <ClipTransformLayer transform={clipTransform} sourceAspect={sourceAspect}>
+              <FilteredMedia
+                key={videoSrc || poster}
+                src={poster}
+                alt="视频预览"
+                videoSrc={videoSrc}
+                videoRef={videoRef}
+                muted={previewMuted}
+                filterCss={filterCss}
+                intensity={filterIntensity}
+                objectFit="contain"
+                className="h-full w-full"
+              />
+            </ClipTransformLayer>
+          </div>
 
           {isCropMode && cropDraft && onCropChange && onCropConfirm && onCropCancel && (
             <VideoCropOverlay
