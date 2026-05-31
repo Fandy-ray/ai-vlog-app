@@ -1,11 +1,20 @@
 import type { VideoClip } from '@/data/mockProject'
 import type { ClipTransform, NormalizedCrop } from '@/types/clipTransform'
-import type { ClipTransitionKind } from '@/types/clipTransition'
+import type { ClipTransition, ClipTransitionKind } from '@/types/clipTransition'
 import { DEFAULT_TRANSITION_DURATION } from '@/types/clipTransition'
+
+export type ClipJoinPoint = {
+  joinIndex: number
+  joinTime: number
+  label: string
+  transition: ClipTransition | null
+}
 
 const MIN_PART_SEC = 0.35
 /** 时间轴切点/范围端点容差（秒） */
 const TIME_EPS = 0.12
+/** 语音/播放头定位转场时，允许偏离衔接点的最大距离（秒） */
+export const JOIN_TRANSITION_MAX_DIST = 0.6
 const ROTATIONS = [0, 90, 180, 270] as const
 
 function totalDuration(clips: VideoClip[]): number {
@@ -332,6 +341,52 @@ function findJoinIndexAtTime(clips: VideoClip[], time: number): number {
   return -1
 }
 
+/** 找离指定时间最近、且在容差内的片段衔接点（不会切开片段） */
+export function findJoinIndexForTransition(
+  clips: VideoClip[],
+  time: number,
+  maxDist = JOIN_TRANSITION_MAX_DIST,
+): { joinIndex: number; joinTime: number } | null {
+  if (clips.length < 2) return null
+
+  let bestIndex = -1
+  let bestDist = Infinity
+  let bestJoinTime = 0
+
+  for (let i = 0; i < clips.length - 1; i += 1) {
+    const joinTime = clips[i].start + clips[i].duration
+    const dist = Math.abs(joinTime - time)
+    if (dist < bestDist) {
+      bestDist = dist
+      bestIndex = i
+      bestJoinTime = joinTime
+    }
+  }
+
+  if (bestIndex < 0 || bestDist > maxDist) return null
+  return { joinIndex: bestIndex, joinTime: bestJoinTime }
+}
+
+/** 仅在已有片段衔接处设置转场（不切分、不新建衔接点） */
+export function applyTransitionAtExistingJoin(
+  clips: VideoClip[],
+  time: number,
+  kind: ClipTransitionKind,
+  transitionDuration = DEFAULT_TRANSITION_DURATION,
+  maxDist = JOIN_TRANSITION_MAX_DIST,
+): { clips: VideoClip[]; joinTime: number; joinIndex: number } | null {
+  const hit = findJoinIndexForTransition(clips, time, maxDist)
+  if (!hit) return null
+  const result = applyTransitionAtJoinIndex(
+    clips,
+    hit.joinIndex,
+    kind,
+    transitionDuration,
+  )
+  if (!result) return null
+  return { ...result, joinIndex: hit.joinIndex }
+}
+
 /** 在指定时间添加转场：必要时先切开，再在衔接处写入 transitionIn/Out */
 export function applyTransitionAtTime(
   clips: VideoClip[],
@@ -373,4 +428,77 @@ export function applyTransitionAtTime(
   })
 
   return { clips: updated, duration, joinTime }
+}
+
+/** 列出所有片段衔接点（至少两段视频才有） */
+export function listClipJoinPoints(clips: VideoClip[]): ClipJoinPoint[] {
+  const points: ClipJoinPoint[] = []
+  for (let i = 0; i < clips.length - 1; i += 1) {
+    const joinTime = clips[i].start + clips[i].duration
+    points.push({
+      joinIndex: i,
+      joinTime,
+      label: `片段 ${i + 1} → ${i + 2}`,
+      transition: clips[i].transitionOut ?? clips[i + 1].transitionIn ?? null,
+    })
+  }
+  return points
+}
+
+/** 找离播放时间最近的衔接点索引 */
+export function findJoinIndexNearTime(clips: VideoClip[], time: number): number {
+  if (clips.length < 2) return -1
+  let best = 0
+  let bestDist = Infinity
+  for (let i = 0; i < clips.length - 1; i += 1) {
+    const join = clips[i].start + clips[i].duration
+    const dist = Math.abs(join - time)
+    if (dist < bestDist) {
+      bestDist = dist
+      best = i
+    }
+  }
+  return best
+}
+
+/** 在已有衔接处设置转场（不切开片段） */
+export function applyTransitionAtJoinIndex(
+  clips: VideoClip[],
+  joinIndex: number,
+  kind: ClipTransitionKind,
+  transitionDuration = DEFAULT_TRANSITION_DURATION,
+): { clips: VideoClip[]; joinTime: number } | null {
+  if (joinIndex < 0 || joinIndex >= clips.length - 1) return null
+
+  const dur = Math.max(0.25, Math.min(1.2, transitionDuration))
+  const transition = { kind, duration: dur }
+  const joinTime = clips[joinIndex].start + clips[joinIndex].duration
+
+  const updated = clips.map((clip, i) => {
+    if (i === joinIndex) return { ...clip, transitionOut: transition }
+    if (i === joinIndex + 1) return { ...clip, transitionIn: transition }
+    return clip
+  })
+
+  return { clips: updated, joinTime }
+}
+
+/** 移除衔接处转场 */
+export function clearTransitionAtJoinIndex(
+  clips: VideoClip[],
+  joinIndex: number,
+): VideoClip[] {
+  if (joinIndex < 0 || joinIndex >= clips.length - 1) return clips
+
+  return clips.map((clip, i) => {
+    if (i === joinIndex) {
+      const { transitionOut: _out, ...rest } = clip
+      return rest
+    }
+    if (i === joinIndex + 1) {
+      const { transitionIn: _in, ...rest } = clip
+      return rest
+    }
+    return clip
+  })
 }

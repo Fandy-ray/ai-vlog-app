@@ -34,4 +34,16 @@ export const editorToasts = {
   narrationOn: '旁白已开启',
   narrationOff: '旁白已关闭',
   audioSaved: '音频设置已保存',
+  transitionNeedClips: '至少需要两段视频才能设置转场',
+  transitionNeedTarget:
+    '转场请说明衔接点秒数（须对准两段的交界），或说「第1和第2个片段之间加叠化」',
+  transitionJoinInvalid: (from: number, to: number) =>
+    `片段 ${from} 与 ${to} 不是相邻两段，请说「第${from}和第${from + 1}个片段之间」`,
+  transitionJoinOutOfRange: (label: string) =>
+    `未找到 ${label} 的衔接处，请检查片段数量`,
+  transitionTimeNotJoin: (at: number, joinHint: string) =>
+    `第 ${Math.round(at)} 秒不是片段衔接处。当前衔接点：${joinHint}`,
+  transitionOff: '已移除转场',
+  transitionOn: (label: string, kind: string, duration: number) =>
+    `已设置 ${label}：${kind} · ${duration.toFixed(1)} 秒`,
 } as const

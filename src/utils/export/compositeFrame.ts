@@ -12,6 +12,7 @@ import type { EditorSnapshot, TextOverlay } from '@/types/editorState'
 import { isActiveAtTime } from '@/utils/timeRange'
 import { drawClipMedia } from '@/utils/drawClipMedia'
 import { drawAnimatedDoodle } from '@/utils/animatedDoodle'
+import { resolveTransitionBlendAtTime } from '@/utils/transitionPreview'
 import { drawEffectOverlay } from './effectsCanvas'
 
 export const EXPORT_WIDTH = 1280
@@ -51,21 +52,71 @@ function drawFilteredMedia(
   height: number,
   filterCss: string,
   intensity: number,
+  alpha = 1,
+  clipWidth?: number,
 ) {
-  const alpha = Math.max(0, Math.min(100, intensity)) / 100
-  const hasFilter = filterCss !== 'none' && alpha > 0
+  const drawAlpha = Math.max(0, Math.min(1, alpha))
+  const filterAlpha = Math.max(0, Math.min(100, intensity)) / 100
+  const hasFilter = filterCss !== 'none' && filterAlpha > 0
 
   ctx.save()
+  if (clipWidth != null && clipWidth < width) {
+    ctx.beginPath()
+    ctx.rect(0, 0, clipWidth, height)
+    ctx.clip()
+  }
+  ctx.globalAlpha = drawAlpha
   ctx.drawImage(source, 0, 0, width, height)
 
   if (hasFilter) {
-    ctx.globalAlpha = alpha
+    ctx.globalAlpha = drawAlpha * filterAlpha
     ctx.filter = filterCss
     ctx.drawImage(source, 0, 0, width, height)
     ctx.filter = 'none'
-    ctx.globalAlpha = 1
   }
   ctx.restore()
+}
+
+async function drawClipLayer(
+  ctx: CanvasRenderingContext2D,
+  clip: VideoClip,
+  localTime: number,
+  width: number,
+  height: number,
+  videoElements: Map<string, HTMLVideoElement>,
+  imageCache: Map<string, HTMLImageElement>,
+  filterCss: string,
+  intensity: number,
+  alpha = 1,
+  clipWidth?: number,
+): Promise<void> {
+  const video = videoElements.get(clip.id)
+  if (video) {
+    const target = Math.min(localTime, Math.max(0, video.duration - 0.05))
+    await seekVideoAccurate(video, target)
+    const mediaCanvas = document.createElement('canvas')
+    mediaCanvas.width = width
+    mediaCanvas.height = height
+    const mediaCtx = mediaCanvas.getContext('2d')
+    if (mediaCtx) {
+      drawClipMedia(mediaCtx, video, width, height, clip.transform)
+      drawFilteredMedia(ctx, mediaCanvas, width, height, filterCss, intensity, alpha, clipWidth)
+    }
+    return
+  }
+
+  const src = clip.poster || clip.thumb
+  const img = src ? imageCache.get(src) : undefined
+  if (!img) return
+
+  const mediaCanvas = document.createElement('canvas')
+  mediaCanvas.width = width
+  mediaCanvas.height = height
+  const mediaCtx = mediaCanvas.getContext('2d')
+  if (mediaCtx) {
+    drawClipMedia(mediaCtx, img, width, height, clip.transform)
+    drawFilteredMedia(ctx, mediaCanvas, width, height, filterCss, intensity, alpha, clipWidth)
+  }
 }
 
 function drawTextOverlay(
@@ -286,43 +337,74 @@ export async function compositeFrameAt(
   const width = options.width ?? EXPORT_WIDTH
   const height = options.height ?? EXPORT_HEIGHT
   const t = Math.max(0, Math.min(globalTime, totalDuration - 0.001))
-  const clip = getClipAtTime(t, clips, totalDuration)
-  const rate = clip.playbackRate ?? 1
-  const localTime = Math.max(
-    0,
-    (clip.sourceOffset ?? 0) + (t - clip.start) * rate,
-  )
   const filterCss = getFilterCss(snapshot.filterId)
   const intensity = snapshot.filterIntensity
+  const transitionBlend = resolveTransitionBlendAtTime(clips, t)
 
   ctx.fillStyle = '#000'
   ctx.fillRect(0, 0, width, height)
 
-  const video = videoElements.get(clip.id)
-  if (video) {
-    const target = Math.min(localTime, Math.max(0, video.duration - 0.05))
-    await seekVideoAccurate(video, target)
-    const mediaCanvas = document.createElement('canvas')
-    mediaCanvas.width = width
-    mediaCanvas.height = height
-    const mediaCtx = mediaCanvas.getContext('2d')
-    if (mediaCtx) {
-      drawClipMedia(mediaCtx, video, width, height, clip.transform)
-      drawFilteredMedia(ctx, mediaCanvas, width, height, filterCss, intensity)
+  if (transitionBlend) {
+    await drawClipLayer(
+      ctx,
+      transitionBlend.incoming,
+      transitionBlend.incomingLocalTime,
+      width,
+      height,
+      videoElements,
+      imageCache,
+      filterCss,
+      intensity,
+      transitionBlend.underOpacity,
+    )
+
+    if (transitionBlend.kind === 'wipe') {
+      const clipWidth = width * (1 - transitionBlend.wipeReveal)
+      await drawClipLayer(
+        ctx,
+        transitionBlend.outgoing,
+        transitionBlend.outgoingLocalTime,
+        width,
+        height,
+        videoElements,
+        imageCache,
+        filterCss,
+        intensity,
+        1,
+        clipWidth,
+      )
+    } else {
+      await drawClipLayer(
+        ctx,
+        transitionBlend.outgoing,
+        transitionBlend.outgoingLocalTime,
+        width,
+        height,
+        videoElements,
+        imageCache,
+        filterCss,
+        intensity,
+        transitionBlend.overOpacity,
+      )
     }
   } else {
-    const src = clip.poster || clip.thumb
-    const img = src ? imageCache.get(src) : undefined
-    if (img) {
-      const mediaCanvas = document.createElement('canvas')
-      mediaCanvas.width = width
-      mediaCanvas.height = height
-      const mediaCtx = mediaCanvas.getContext('2d')
-      if (mediaCtx) {
-        drawClipMedia(mediaCtx, img, width, height, clip.transform)
-        drawFilteredMedia(ctx, mediaCanvas, width, height, filterCss, intensity)
-      }
-    }
+    const clip = getClipAtTime(t, clips, totalDuration)
+    const rate = clip.playbackRate ?? 1
+    const localTime = Math.max(
+      0,
+      (clip.sourceOffset ?? 0) + (t - clip.start) * rate,
+    )
+    await drawClipLayer(
+      ctx,
+      clip,
+      localTime,
+      width,
+      height,
+      videoElements,
+      imageCache,
+      filterCss,
+      intensity,
+    )
   }
 
   drawEffectOverlay(ctx, width, height, snapshot.effectId ?? 'none', t, false)

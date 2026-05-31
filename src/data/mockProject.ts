@@ -81,3 +81,12 @@ export const BGM_LABEL = 'Sunny Day - 轻松治愈'
 
 export const PREVIEW_POSTER =
   'https://images.unsplash.com/photo-1469854523086-cc02fe5d8800?w=800&h=450&fit=crop'
+
+/** 工具面板缩略图：优先片段封面，便于展示当前编辑素材 */
+export function getClipPreviewSrc(
+  clip: Pick<VideoClip, 'poster' | 'thumb'> | null | undefined,
+  fallback: string = PREVIEW_POSTER,
+): string {
+  if (!clip) return fallback
+  return clip.thumb || clip.poster || fallback
+}

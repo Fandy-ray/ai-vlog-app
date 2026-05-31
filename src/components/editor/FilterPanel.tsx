@@ -1,6 +1,5 @@
 import { Check, X } from 'lucide-react'
 import type { FilterPreset } from '@/data/filters'
-import { PREVIEW_POSTER } from '@/data/mockProject'
 import { FilterIntensityControl } from './FilterIntensityControl'
 import { FilteredMedia } from './FilteredMedia'
 
@@ -8,6 +7,7 @@ interface FilterPanelProps {
   filters: FilterPreset[]
   selectedId: string
   intensity: number
+  previewSrc: string
   onSelect: (id: string) => void
   onIntensityChange: (value: number) => void
   onConfirm: () => void
@@ -18,6 +18,7 @@ export function FilterPanel({
   filters,
   selectedId,
   intensity,
+  previewSrc,
   onSelect,
   onIntensityChange,
   onConfirm,
@@ -50,34 +51,36 @@ export function FilterPanel({
         </div>
       </header>
 
-      <ul className="flex gap-3 overflow-x-auto px-4 pb-2 pt-1">
+      <ul className="flex gap-3 overflow-x-auto px-4 pb-2 pt-2">
         {filters.map((filter) => {
           const active = selectedId === filter.id
           return (
-            <li key={filter.id} className="shrink-0">
+            <li key={filter.id} className="shrink-0 pt-0.5">
               <button
                 type="button"
                 onClick={() => onSelect(filter.id)}
                 className="flex flex-col items-center gap-1.5 transition-transform active:scale-95"
               >
                 <span
-                  className={`relative block h-[72px] w-[72px] overflow-hidden rounded-[var(--radius-md)] bg-track-video ${
+                  className={`relative block rounded-[var(--radius-md)] ${
                     active
-                      ? 'ring-2 ring-primary ring-offset-2'
+                      ? 'ring-2 ring-primary ring-offset-2 ring-offset-surface'
                       : 'ring-1 ring-border/60'
                   }`}
                 >
-                  <FilteredMedia
-                    src={PREVIEW_POSTER}
-                    filterCss={filter.css}
-                    intensity={active && filter.id !== 'none' ? intensity : 100}
-                    className="h-full w-full"
-                  />
-                  {active && (
-                    <span className="absolute right-1 top-1 z-10 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-white">
-                      <Check size={10} strokeWidth={3} />
-                    </span>
-                  )}
+                  <span className="relative block h-[72px] w-[72px] overflow-hidden rounded-[var(--radius-md)] bg-track-video">
+                    <FilteredMedia
+                      src={previewSrc}
+                      filterCss={filter.css}
+                      intensity={active && filter.id !== 'none' ? intensity : 100}
+                      className="h-full w-full"
+                    />
+                    {active && (
+                      <span className="absolute right-1 top-1 z-10 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-white">
+                        <Check size={10} strokeWidth={3} />
+                      </span>
+                    )}
+                  </span>
                 </span>
                 <span
                   className={`max-w-[72px] truncate text-[11px] ${

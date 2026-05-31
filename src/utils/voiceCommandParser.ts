@@ -3,7 +3,7 @@
  */
 
 import type { ClipTransitionKind } from '@/types/clipTransition'
-import { DEFAULT_TRANSITION_DURATION } from '@/types/clipTransition'
+import { parseVoiceTransitionCommand } from '@/utils/voiceTransition'
 
 export type ParsedVoiceCommandType =
   | 'speed'
@@ -41,6 +41,8 @@ export interface ParsedVoiceCommand {
     effectId?: string
     transitionKind?: ClipTransitionKind
     transitionDuration?: number
+    /** 片段衔接索引：joinIndex 0 = 片段1→2 */
+    joinIndex?: number
   }
 }
 
@@ -267,36 +269,6 @@ function parseRotationDirection(
   return null
 }
 
-function hasTransitionIntent(text: string): boolean {
-  return (
-    /转场|过渡|切换镜头|切镜头|切镜|淡入淡出|淡入|淡出|叠化|溶解|渐隐|渐显|划像|擦除/u.test(
-      text,
-    ) ||
-    (/流畅|顺滑|衔接/u.test(text) &&
-      (/转场|过渡|秒|切/u.test(text) || extractSingleTimes(text).length > 0))
-  )
-}
-
-function parseTransitionKind(text: string): ClipTransitionKind {
-  if (/叠化|溶解|cross/i.test(text)) return 'dissolve'
-  if (/划像|划变|擦除|wip/i.test(text)) return 'wipe'
-  return 'fade'
-}
-
-function parseTransitionDuration(text: string): number {
-  if (/长一点|长一些|久一点/u.test(text)) return 0.8
-  if (/短一点|快一点/u.test(text)) return 0.35
-  if (/一点|稍微|略微/u.test(text)) return 0.45
-  const explicit = text.match(
-    /([零一二两三四五六七八九十\d]+(?:\.\d+)?)\s*秒(?:的)?转场/u,
-  )
-  if (explicit) {
-    const n = parseNumberToken(explicit[1])
-    if (n != null && n >= 0.2 && n <= 1.5) return n
-  }
-  return DEFAULT_TRANSITION_DURATION
-}
-
 function hasSplitIntent(text: string): boolean {
   if (/转场|过渡/u.test(text)) return false
   return (
@@ -509,22 +481,17 @@ export function parseVoiceCommands(raw: string): ParsedVoiceCommand[] {
   const singleTimes = extractSingleTimes(text)
   const primaryTime = singleTimes[0]
 
-  if (hasTransitionIntent(text)) {
-    const kind = parseTransitionKind(text)
-    const transitionDuration = parseTransitionDuration(text)
-    const time = primaryTime ?? 0
-    const kindLabel =
-      kind === 'dissolve' ? '叠化' : kind === 'wipe' ? '划像' : '淡化'
+  const voiceTransition = parseVoiceTransitionCommand(text)
+  if (voiceTransition) {
     items.push({
-      id: `transition-${time}-${kind}`,
+      id: voiceTransition.id,
       command: 'transition',
-      label: primaryTime != null
-        ? `在第 ${time} 秒添加${kindLabel}转场`
-        : `在播放头添加${kindLabel}转场`,
+      label: voiceTransition.label,
       payload: {
-        time: primaryTime,
-        transitionKind: kind,
-        transitionDuration,
+        time: voiceTransition.payload.joinTime,
+        joinIndex: voiceTransition.payload.joinIndex,
+        transitionKind: voiceTransition.payload.transitionKind,
+        transitionDuration: voiceTransition.payload.transitionDuration,
       },
     })
   }

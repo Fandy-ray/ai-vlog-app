@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import {
   getClipAtTime,
+  getClipPreviewSrc,
   PROJECT_DURATION,
   VIDEO_CLIPS,
   type VideoClip,
@@ -41,11 +42,24 @@ import {
   rotateClipByDelta,
   setClipCrop,
   setClipPlaybackRate,
-  applyTransitionAtTime,
+  applyTransitionAtJoinIndex,
+  clearTransitionAtJoinIndex,
+  findJoinIndexNearTime,
+  listClipJoinPoints,
   splitClipAt,
   toggleClipMirror,
 } from '@/utils/clipOperations'
+import type { TransitionPresetId } from '@/data/clipTransitions'
 import { transitionKindLabel } from '@/types/clipTransition'
+import { DEFAULT_TRANSITION_DURATION } from '@/types/clipTransition'
+import {
+  resolveTransitionOpacityAtTime,
+  resolveTransitionPreview,
+} from '@/utils/transitionPreview'
+import {
+  applyVoiceTransition,
+  voiceTransitionErrorMessage,
+} from '@/utils/voiceTransition'
 import {
   appendClipsFromImports,
   probeVideoFile,
@@ -68,6 +82,7 @@ import { NarrationPanel } from '@/components/editor/NarrationPanel'
 import { BottomToolbar } from '@/components/editor/BottomToolbar'
 import { EffectPanel } from '@/components/editor/EffectPanel'
 import { FilterPanel } from '@/components/editor/FilterPanel'
+import { TransitionPanel } from '@/components/editor/TransitionPanel'
 import { StickerPanel } from '@/components/editor/StickerPanel'
 import { TextPanel } from '@/components/editor/TextPanel'
 import { Timeline } from '@/components/editor/Timeline'
@@ -457,6 +472,12 @@ export function EditorPage() {
   const [draftFilterId, setDraftFilterId] = useState(snapshot.filterId)
   const [draftIntensity, setDraftIntensity] = useState(snapshot.filterIntensity)
   const [draftEffectId, setDraftEffectId] = useState(snapshot.effectId ?? 'none')
+  const [draftTransitionJoinIndex, setDraftTransitionJoinIndex] = useState(0)
+  const [draftTransitionKind, setDraftTransitionKind] =
+    useState<TransitionPresetId>('fade')
+  const [draftTransitionDuration, setDraftTransitionDuration] = useState(
+    DEFAULT_TRANSITION_DURATION,
+  )
   const [draftText, setDraftText] = useState<TextOverlay | null>(null)
   const [draftSticker, setDraftSticker] = useState<StickerOverlay | null>(null)
   const [draftKeepOriginalAudio, setDraftKeepOriginalAudio] = useState(
@@ -553,6 +574,7 @@ export function EditorPage() {
   const showEffectPanel = activeTool === 'effect'
   const showTextPanel = activeTool === 'text'
   const showStickerPanel = activeTool === 'sticker'
+  const showTransitionPanel = activeTool === 'transition'
   const isTextPanelEditing = showTextPanel
   const isStickerPanelEditing = showStickerPanel
 
@@ -853,8 +875,28 @@ export function EditorPage() {
     snapshot,
   ])
 
+  const clipsForPreview = useMemo(() => {
+    if (!showTransitionPanel) return clips
+    if (draftTransitionKind === 'none') {
+      return clearTransitionAtJoinIndex(clips, draftTransitionJoinIndex)
+    }
+    const result = applyTransitionAtJoinIndex(
+      clips,
+      draftTransitionJoinIndex,
+      draftTransitionKind,
+      draftTransitionDuration,
+    )
+    return result?.clips ?? clips
+  }, [
+    clips,
+    draftTransitionDuration,
+    draftTransitionJoinIndex,
+    draftTransitionKind,
+    showTransitionPanel,
+  ])
+
   const activeClip = useMemo(() => {
-    if (!clips.length) {
+    if (!clipsForPreview.length) {
       return {
         id: 'placeholder',
         start: 0,
@@ -863,13 +905,14 @@ export function EditorPage() {
         poster: '',
       } satisfies VideoClip
     }
-    return getClipAtTime(currentTime, clips, projectDuration)
-  }, [currentTime, clips, projectDuration])
+    return getClipAtTime(currentTime, clipsForPreview, projectDuration)
+  }, [currentTime, clipsForPreview, projectDuration])
 
   previewVideoClockRef.current =
     Boolean(activeClip.videoSrc) && isPlaying
 
   const lastPreviewSyncMsRef = useRef(0)
+  const transitionPreviewActiveRef = useRef(false)
   const handlePreviewTimelineSync = useCallback(
     (time: number) => {
       if (time >= projectDuration) {
@@ -878,7 +921,8 @@ export function EditorPage() {
         return
       }
       const now = performance.now()
-      if (now - lastPreviewSyncMsRef.current < 40) return
+      const minGap = transitionPreviewActiveRef.current ? 16 : 40
+      if (now - lastPreviewSyncMsRef.current < minGap) return
       lastPreviewSyncMsRef.current = now
       syncTime(time)
     },
@@ -893,21 +937,38 @@ export function EditorPage() {
       (currentTime - activeClip.start) * activePlaybackRate,
   )
 
-  const previewMediaOpacity = useMemo(() => {
-    const clip = activeClip
-    if (!clip.id || clip.id === 'placeholder') return 1
-    const local = currentTime - clip.start
-    const out = clip.transitionOut
-    if (out && local >= clip.duration - out.duration) {
-      const t = (clip.duration - local) / out.duration
-      return Math.max(0.12, Math.min(1, t))
+  const transitionPreviewFrame = useMemo(
+    () => resolveTransitionPreview(clipsForPreview, activeClip, currentTime),
+    [clipsForPreview, activeClip, currentTime],
+  )
+
+  const previewMediaOpacity =
+    transitionPreviewFrame?.overOpacity ??
+    resolveTransitionOpacityAtTime(clipsForPreview, currentTime)
+  const previewMediaClipPath = transitionPreviewFrame?.overClipPath
+  transitionPreviewActiveRef.current = Boolean(transitionPreviewFrame)
+
+  const toolPanelPreviewSrc = useMemo(
+    () =>
+      getClipPreviewSrc(
+        !activeClip.id || activeClip.id === 'placeholder' ? null : activeClip,
+      ),
+    [activeClip],
+  )
+
+  const transitionPanelScenes = useMemo(() => {
+    const outClip = clips[draftTransitionJoinIndex]
+    const inClip = clips[draftTransitionJoinIndex + 1]
+    return {
+      sceneOutSrc: getClipPreviewSrc(outClip, toolPanelPreviewSrc),
+      sceneInSrc: getClipPreviewSrc(inClip, toolPanelPreviewSrc),
     }
-    const inn = clip.transitionIn
-    if (inn && local < inn.duration) {
-      return Math.max(0.12, Math.min(1, local / inn.duration))
-    }
-    return 1
-  }, [activeClip, currentTime])
+  }, [clips, draftTransitionJoinIndex, toolPanelPreviewSrc])
+
+  const clipJoinPoints = useMemo(
+    () => listClipJoinPoints(showTransitionPanel ? clipsForPreview : clips),
+    [clips, clipsForPreview, showTransitionPanel],
+  )
 
   const selectedVideoClip = useMemo(
     () => clips.find((c) => c.id === selectedVideoClipId) ?? null,
@@ -1266,13 +1327,11 @@ export function EditorPage() {
       let nextClips = clips
       let nextDuration = projectDuration
       const appliedLabels: string[] = []
-      let failed = false
 
       for (const item of clipItems) {
         if (item.command === 'speed') {
           const targetId = resolveVoiceTargetClipId(nextClips)
           if (!targetId) {
-            failed = true
             continue
           }
           const result = setClipPlaybackRate(
@@ -1296,7 +1355,6 @@ export function EditorPage() {
           ) {
             const range = clampVoiceTimelineRange(start, end, nextDuration)
             if (!range) {
-              failed = true
               continue
             }
             const result = deleteClipRange(
@@ -1308,7 +1366,6 @@ export function EditorPage() {
               show(
                 `无法删除 ${range.start}–${range.end} 秒：成片约 ${Math.round(nextDuration)} 秒；若刚在切点加了转场，请先说删除再说转场，或把范围略缩到切点内侧（如 3–4.9 秒）`,
               )
-              failed = true
               continue
             }
             nextClips = result.clips
@@ -1321,7 +1378,6 @@ export function EditorPage() {
               : deleteClipAt(nextClips, currentTime)
             if (!result) {
               show(editorToasts.deleteNeedOne)
-              failed = true
               continue
             }
             nextClips = result.clips
@@ -1338,7 +1394,6 @@ export function EditorPage() {
           const range = clampVoiceTimelineRange(start, end, nextDuration)
           if (!range) {
             show('保留时间段无效')
-            failed = true
             continue
           }
           const result = keepClipRange(
@@ -1348,7 +1403,6 @@ export function EditorPage() {
           )
           if (!result) {
             show('无法保留该时间段，请换更靠中间的起止秒数')
-            failed = true
             continue
           }
           nextClips = result.clips
@@ -1360,7 +1414,6 @@ export function EditorPage() {
         if (item.command === 'rotate') {
           const targetId = resolveVoiceTargetClipId(nextClips)
           if (!targetId) {
-            failed = true
             continue
           }
           let delta = item.payload?.rotationDelta
@@ -1376,7 +1429,6 @@ export function EditorPage() {
         if (item.command === 'mirror') {
           const targetId = resolveVoiceTargetClipId(nextClips)
           if (!targetId) {
-            failed = true
             continue
           }
           nextClips = toggleClipMirror(nextClips, targetId)
@@ -1385,29 +1437,18 @@ export function EditorPage() {
         }
 
         if (item.command === 'transition') {
-          const at =
-            item.payload?.time != null
-              ? Math.max(0, Math.min(item.payload.time, nextDuration - 0.01))
-              : currentTime
-          const kind = item.payload?.transitionKind ?? 'fade'
-          const result = applyTransitionAtTime(
-            nextClips,
-            at,
-            kind,
-            item.payload?.transitionDuration,
-          )
-          if (!result) {
-            show(
-              `无法在 ${Math.round(at)} 秒处加转场：请换更靠中间的切点（距头尾各约 0.35 秒）`,
-            )
-            failed = true
+          const outcome = applyVoiceTransition(nextClips, {
+            joinIndex: item.payload?.joinIndex,
+            joinTime: item.payload?.time,
+            transitionKind: item.payload?.transitionKind,
+            transitionDuration: item.payload?.transitionDuration,
+          })
+          if (!outcome.ok) {
+            show(voiceTransitionErrorMessage(outcome))
             continue
           }
-          nextClips = result.clips
-          nextDuration = result.duration
-          appliedLabels.push(
-            `${Math.round(result.joinTime)} 秒 · ${transitionKindLabel(kind)}转场`,
-          )
+          nextClips = outcome.clips
+          appliedLabels.push(outcome.appliedLabel)
           continue
         }
 
@@ -1419,7 +1460,6 @@ export function EditorPage() {
           const result = splitClipAt(nextClips, at)
           if (!result) {
             show(`无法在第 ${Math.round(at)} 秒分割，切点太靠近片段头尾`)
-            failed = true
             continue
           }
           nextClips = result.clips
@@ -1505,7 +1545,6 @@ export function EditorPage() {
             setIsCropMode(true)
             appliedLabels.push('进入裁剪')
           } else {
-            failed = true
           }
         }
         if (item.command === 'narration') {
@@ -1569,8 +1608,6 @@ export function EditorPage() {
 
       if (appliedLabels.length) {
         show(`已应用：${appliedLabels.join('、')}`)
-      } else if (failed) {
-        show('部分指令未能应用，请检查时间范围或先选中片段')
       }
       } catch (error) {
         console.error('[voice-apply]', error)
@@ -1676,6 +1713,109 @@ export function EditorPage() {
     setDraftEffectId(appliedEffectId)
     closeAllPanels()
   }
+
+  const applyTransitionDraftToClips = useCallback(
+    (joinIndex: number, kind: TransitionPresetId, duration: number) => {
+      let nextClips = clips
+      if (kind === 'none') {
+        nextClips = clearTransitionAtJoinIndex(clips, joinIndex)
+      } else {
+        const result = applyTransitionAtJoinIndex(clips, joinIndex, kind, duration)
+        if (!result) return null
+        nextClips = result.clips
+      }
+      return nextClips
+    },
+    [clips],
+  )
+
+  const openTransitionPanel = useCallback(() => {
+    if (clips.length < 2) {
+      show(editorToasts.transitionNeedClips)
+      return
+    }
+    const joinIndex = Math.max(0, findJoinIndexNearTime(clips, currentTime))
+    const join = listClipJoinPoints(clips).find((j) => j.joinIndex === joinIndex)
+    setDraftTransitionJoinIndex(joinIndex)
+    setDraftTransitionKind(join?.transition?.kind ?? 'none')
+    setDraftTransitionDuration(
+      join?.transition?.duration ?? DEFAULT_TRANSITION_DURATION,
+    )
+    setActiveTool('transition')
+  }, [clips, currentTime, show])
+
+  const cancelTransitionPanel = useCallback(() => {
+    closeAllPanels()
+  }, [])
+
+  const confirmTransitionPanel = useCallback(() => {
+    const join = listClipJoinPoints(clips).find(
+      (j) => j.joinIndex === draftTransitionJoinIndex,
+    )
+    const nextClips = applyTransitionDraftToClips(
+      draftTransitionJoinIndex,
+      draftTransitionKind,
+      draftTransitionDuration,
+    )
+    if (!nextClips) {
+      show('无法在该衔接处设置转场')
+      return
+    }
+    setClips(nextClips)
+    updateEditorProject({ clips: nextClips, duration: projectDuration })
+    pushEditorHistory({
+      videoClips: nextClips,
+      videoDuration: projectDuration,
+    })
+    closeAllPanels()
+    if (draftTransitionKind === 'none') {
+      show(editorToasts.transitionOff)
+    } else if (join) {
+      show(
+        editorToasts.transitionOn(
+          join.label,
+          transitionKindLabel(draftTransitionKind),
+          draftTransitionDuration,
+        ),
+      )
+    }
+  }, [
+    applyTransitionDraftToClips,
+    clips,
+    draftTransitionDuration,
+    draftTransitionJoinIndex,
+    draftTransitionKind,
+    projectDuration,
+    pushEditorHistory,
+    show,
+  ])
+
+  const handleTransitionJoinSelect = useCallback(
+    (joinIndex: number, joinTime: number) => {
+      const join = listClipJoinPoints(clips).find((j) => j.joinIndex === joinIndex)
+      setDraftTransitionJoinIndex(joinIndex)
+      setDraftTransitionKind(join?.transition?.kind ?? 'none')
+      setDraftTransitionDuration(
+        join?.transition?.duration ?? DEFAULT_TRANSITION_DURATION,
+      )
+      const duration = join?.transition?.duration ?? DEFAULT_TRANSITION_DURATION
+      const previewAt = Math.max(
+        0,
+        Math.min(joinTime - duration * 0.5, projectDuration - 0.05),
+      )
+      seek(previewAt)
+      setIsPlaying(false)
+    },
+    [clips, projectDuration, seek, setIsPlaying],
+  )
+
+  const handleTransitionKindSelect = useCallback((kind: TransitionPresetId) => {
+    setDraftTransitionKind(kind)
+  }, [])
+
+  const handleTransitionDurationChange = useCallback((duration: number) => {
+    setDraftTransitionDuration(duration)
+  }, [])
 
   const openTextPanel = useCallback(() => {
     if (selectedTextId && liveText) {
@@ -2878,6 +3018,9 @@ export function EditorPage() {
 
   const handleToolSelect = (id: string, _label: string) => {
     if (showDoodlePanel) setActiveFeature(null)
+    if (activeTool === 'transition' && id !== 'transition') {
+      cancelTransitionPanel()
+    }
     if (id === 'filter') {
       if (activeTool === 'filter') cancelFilterPanel()
       else openFilterPanel()
@@ -2886,6 +3029,11 @@ export function EditorPage() {
     if (id === 'effect') {
       if (activeTool === 'effect') cancelEffectPanel()
       else openEffectPanel()
+      return
+    }
+    if (id === 'transition') {
+      if (activeTool === 'transition') cancelTransitionPanel()
+      else openTransitionPanel()
       return
     }
     if (id === 'text') {
@@ -3414,6 +3562,8 @@ export function EditorPage() {
         clipSourceOffset={activeClip.sourceOffset ?? 0}
         playbackRate={activePlaybackRate}
         mediaOpacity={previewMediaOpacity}
+        mediaClipPath={previewMediaClipPath}
+        transitionUnderlay={transitionPreviewFrame?.underlay ?? null}
         onTimelineSync={handlePreviewTimelineSync}
         isCropMode={isCropMode}
         cropDraft={draftCrop}
@@ -3530,10 +3680,27 @@ export function EditorPage() {
           <EffectPanel
             effects={EFFECT_PRESETS}
             selectedId={draftEffectId}
+            previewSrc={toolPanelPreviewSrc}
             filterCss={getFilterCss(previewFilterId)}
             onSelect={setDraftEffectId}
             onConfirm={confirmEffectPanel}
             onClose={cancelEffectPanel}
+          />
+        )}
+
+        {showTransitionPanel && clipJoinPoints.length > 0 && (
+          <TransitionPanel
+            joins={clipJoinPoints}
+            selectedJoinIndex={draftTransitionJoinIndex}
+            selectedKind={draftTransitionKind}
+            duration={draftTransitionDuration}
+            sceneOutSrc={transitionPanelScenes.sceneOutSrc}
+            sceneInSrc={transitionPanelScenes.sceneInSrc}
+            onJoinSelect={handleTransitionJoinSelect}
+            onKindSelect={handleTransitionKindSelect}
+            onDurationChange={handleTransitionDurationChange}
+            onConfirm={confirmTransitionPanel}
+            onClose={cancelTransitionPanel}
           />
         )}
 
@@ -3542,6 +3709,7 @@ export function EditorPage() {
             filters={FILTER_PRESETS}
             selectedId={draftFilterId}
             intensity={draftIntensity}
+            previewSrc={toolPanelPreviewSrc}
             onSelect={handleFilterSelect}
             onIntensityChange={setDraftIntensity}
             onConfirm={confirmFilterPanel}

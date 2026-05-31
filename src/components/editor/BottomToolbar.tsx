@@ -1,4 +1,5 @@
 import {
+  ArrowLeftRight,
   Blend,
   Music2,
   Scissors,
@@ -11,6 +12,7 @@ const TOOLS = [
   { id: 'cut', label: '剪辑', icon: Scissors },
   { id: 'filter', label: '滤镜', icon: Blend },
   { id: 'effect', label: '特效', icon: Sparkles },
+  { id: 'transition', label: '转场', icon: ArrowLeftRight },
   { id: 'text', label: '文字', icon: Type },
   { id: 'sticker', label: '贴纸', icon: Smile },
   { id: 'audio', label: '音频', icon: Music2 },

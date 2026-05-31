@@ -123,7 +123,7 @@ router.post('/voice/parse-commands', async (req, res) => {
   const systemPrompt = [
     '你是短视频剪辑语音助手。把用户的口语指令解析为 JSON。',
     '只输出 JSON，不要解释。格式：',
-    '{"commands":[{"type":"delete|keep|speed|rotate|mirror|bgm|music|transition|split|filter|effect|seek|mute|unmute|crop|narration|audio","start":12,"end":13,"time":5,"rate":2,"direction":"left|right","text":"描述","filterId":"soft","effectId":"light","transition":"fade","transitionDuration":0.5}]}',
+    '{"commands":[{"type":"delete|keep|speed|rotate|mirror|bgm|music|transition|split|filter|effect|seek|mute|unmute|crop|narration|audio","start":12,"end":13,"time":10,"clipFrom":1,"clipTo":2,"rate":2,"direction":"left|right","text":"描述","filterId":"soft","effectId":"light","transition":"fade","transitionDuration":0.5}]}',
     '规则：',
     '- type=delete：删除时间段，需要 start/end（秒）',
     '- type=keep：只保留时间段',
@@ -131,7 +131,8 @@ router.post('/voice/parse-commands', async (req, res) => {
     '- type=rotate：direction 为 left 或 right；可选 rate 表示角度（默认 90）',
     '- type=mirror：镜像',
     '- type=bgm 或 music：给视频配乐，text 为用户想要的音乐风格描述',
-    '- type=transition：在 time（秒）处加转场；transition 为 fade|dissolve|wipe；可说「第5秒加转场」',
+    '- type=transition：仅在已有片段衔接处加转场，禁止依赖播放头，禁止在中途切开。须二选一且必填其一：① time=衔接点秒数（必须是两段视频的交界秒数）；② clipFrom+clipTo=相邻片段序号（clipTo 必须等于 clipFrom+1，如第1与第2段之间则 clipFrom=1, clipTo=2）。若用户未说明衔接点秒数也未说明相邻片段序号，不要输出 transition 指令',
+    '- 示例：「第10秒加叠化转场」→ time=10, transition=dissolve；「第1和第2个片段之间加划像」→ clipFrom=1, clipTo=2, transition=wipe；只说「加转场」而无位置 → 不要输出',
     '- type=split：在 time 处分割片段',
     '- type=filter：filterId 为 warm|cool|soft|bw|cinematic|vintage|fresh|vivid|none',
     '- type=effect：effectId 为 vignette|film|grain|light|dream|sparkle|snow|none',

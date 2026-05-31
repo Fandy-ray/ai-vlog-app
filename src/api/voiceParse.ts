@@ -1,4 +1,8 @@
 import type { ParsedVoiceCommand } from '@/utils/voiceCommandParser'
+import {
+  buildVoiceTransitionLabel,
+  voiceTransitionPayloadFromAi,
+} from '@/utils/voiceTransition'
 
 type AiCommandRow = {
   type?: string
@@ -12,6 +16,9 @@ type AiCommandRow = {
   effectId?: string
   transition?: string
   transitionDuration?: number
+  joinIndex?: number
+  clipFrom?: number
+  clipTo?: number
 }
 
 function mapAiCommands(rows: AiCommandRow[]): ParsedVoiceCommand[] {
@@ -65,28 +72,18 @@ function mapAiCommands(rows: AiCommandRow[]): ParsedVoiceCommand[] {
         payload: { text: String(row.text || '') },
       })
     } else if (type === 'transition') {
-      const time = row.time ?? row.start
-      const raw = String(row.transition || 'fade').toLowerCase()
-      const kind =
-        raw.includes('dissolve') || raw.includes('叠化')
-          ? 'dissolve'
-          : raw.includes('wipe') || raw.includes('划')
-            ? 'wipe'
-            : 'fade'
+      const payload = voiceTransitionPayloadFromAi(row)
+      if (!payload) continue
+      const kind = payload.transitionKind ?? 'fade'
       items.push({
-        id: `ai-transition-${time ?? 'head'}`,
+        id: `ai-transition-${payload.joinIndex ?? payload.joinTime ?? 'spec'}-${kind}`,
         command: 'transition',
-        label:
-          time != null
-            ? `在第 ${time} 秒添加转场`
-            : '在播放头添加转场',
+        label: buildVoiceTransitionLabel(payload),
         payload: {
-          time: time != null ? Number(time) : undefined,
+          time: payload.joinTime,
+          joinIndex: payload.joinIndex,
           transitionKind: kind,
-          transitionDuration:
-            row.transitionDuration != null
-              ? Number(row.transitionDuration)
-              : undefined,
+          transitionDuration: payload.transitionDuration,
         },
       })
     } else if (type === 'split' && (row.time != null || row.start != null)) {
@@ -160,11 +157,13 @@ function mapAiCommands(rows: AiCommandRow[]): ParsedVoiceCommand[] {
 /** 本地规则未命中时，用蓝心 Chat 理解自然语言指令（需后端） */
 export async function fetchVoiceCommandsFromAi(
   text: string,
+  signal?: AbortSignal,
 ): Promise<ParsedVoiceCommand[]> {
   const res = await fetch('/api/voice/parse-commands', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json; charset=utf-8' },
     body: JSON.stringify({ text }),
+    signal,
   })
   const data = await res.json()
   if (!res.ok) {

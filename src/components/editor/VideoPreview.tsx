@@ -6,6 +6,7 @@ import {
   useImperativeHandle,
   useRef,
   useState,
+  type RefObject,
 } from 'react'
 import { ClipTransformLayer } from '@/components/editor/ClipTransformLayer'
 import { VideoCropOverlay } from '@/components/editor/VideoCropOverlay'
@@ -13,6 +14,7 @@ import type { NormalizedCrop } from '@/types/clipTransform'
 import { EffectOverlay } from '@/components/editor/EffectOverlay'
 import { FilteredMedia } from '@/components/editor/FilteredMedia'
 import type { ClipTransform } from '@/types/clipTransform'
+import type { TransitionUnderlayPreview } from '@/utils/transitionPreview'
 import { VideoStickerOverlay } from '@/components/editor/VideoStickerOverlay'
 import { VideoTextOverlay } from '@/components/editor/VideoTextOverlay'
 import {
@@ -95,8 +97,12 @@ interface VideoPreviewProps {
   clipSourceOffset?: number
   /** 当前片段播放倍速 */
   playbackRate?: number
-  /** 转场预览时画面透明度（0–1） */
+  /** 转场预览时上层（当前段）透明度 */
   mediaOpacity?: number
+  /** 划像等转场时上层裁切 */
+  mediaClipPath?: string
+  /** 转场时底层（下一段） */
+  transitionUnderlay?: TransitionUnderlayPreview | null
   /** 播放中由视频时钟回写时间轴 */
   onTimelineSync?: (timelineTime: number) => void
   currentTime: number
@@ -143,6 +149,63 @@ function loadPreviewImage(src: string): Promise<HTMLImageElement> {
   })
 }
 
+function TransitionUnderlayMedia({
+  underlay,
+  filterCss,
+  filterIntensity,
+  muted,
+  isPlaying,
+  videoRef,
+}: {
+  underlay: TransitionUnderlayPreview
+  filterCss: string
+  filterIntensity: number
+  muted: boolean
+  isPlaying: boolean
+  videoRef: RefObject<HTMLVideoElement | null>
+}) {
+  useEffect(() => {
+    if (isPlaying) return
+    const video = videoRef.current
+    if (!video || !underlay.videoSrc) return
+    const target = underlay.clipTime
+    if (!Number.isFinite(target)) return
+    if (Math.abs(video.currentTime - target) > 0.05) {
+      try {
+        video.currentTime = target
+      } catch {
+        /* ignore seek while loading */
+      }
+    }
+  }, [isPlaying, underlay.clipTime, underlay.videoSrc, videoRef])
+
+  useEffect(() => {
+    const video = videoRef.current
+    if (!video || !underlay.videoSrc) return
+    const rate = Math.max(0.1, Math.min(16, underlay.playbackRate))
+    if (Math.abs(video.playbackRate - rate) > 0.001) {
+      video.playbackRate = rate
+    }
+    video.muted = muted
+    if (!isPlaying) {
+      video.pause()
+    }
+  }, [isPlaying, muted, underlay.playbackRate, underlay.videoSrc, videoRef])
+
+  return (
+    <FilteredMedia
+      src={underlay.poster}
+      videoSrc={underlay.videoSrc}
+      videoRef={videoRef}
+      filterCss={filterCss}
+      intensity={filterIntensity}
+      objectFit="contain"
+      className="h-full w-full"
+      muted={muted}
+    />
+  )
+}
+
 export const VideoPreview = forwardRef<VideoPreviewHandle, VideoPreviewProps>(function VideoPreview({
   poster,
   videoSrc,
@@ -152,6 +215,8 @@ export const VideoPreview = forwardRef<VideoPreviewHandle, VideoPreviewProps>(fu
   clipSourceOffset = 0,
   playbackRate = 1,
   mediaOpacity = 1,
+  mediaClipPath,
+  transitionUnderlay = null,
   onTimelineSync,
   currentTime,
   duration,
@@ -186,6 +251,15 @@ export const VideoPreview = forwardRef<VideoPreviewHandle, VideoPreviewProps>(fu
   previewVolume = 1,
 }: VideoPreviewProps, ref) {
   const videoRef = useRef<HTMLVideoElement>(null)
+  const underlayVideoRef = useRef<HTMLVideoElement>(null)
+  const transitionPlaySyncRef = useRef<{
+    mainVideoTime: number
+    underlayClipTime: number
+    mainRate: number
+    underlayRate: number
+  } | null>(null)
+  const prevUnderlayRef = useRef<TransitionUnderlayPreview | null>(null)
+  const lastUnderlayVideoTimeRef = useRef(0)
   const lastSeekStateRef = useRef<{
     videoSrc?: string
     clipTime: number
@@ -361,6 +435,64 @@ export const VideoPreview = forwardRef<VideoPreviewHandle, VideoPreviewProps>(fu
   }, [clipTime, videoSrc, isPlaying])
 
   useEffect(() => {
+    transitionPlaySyncRef.current = null
+  }, [transitionUnderlay?.videoSrc, transitionUnderlay?.clipTimelineStart])
+
+  useEffect(() => {
+    if (!isPlaying || !transitionUnderlay?.videoSrc) return
+
+    let raf = 0
+    const tick = () => {
+      const main = videoRef.current
+      const under = underlayVideoRef.current
+      if (main && under && transitionUnderlay) {
+        if (!transitionPlaySyncRef.current) {
+          transitionPlaySyncRef.current = {
+            mainVideoTime: main.currentTime,
+            underlayClipTime: transitionUnderlay.clipTime,
+            mainRate: playbackRate,
+            underlayRate: transitionUnderlay.playbackRate,
+          }
+        }
+
+        const sync = transitionPlaySyncRef.current
+        const timelineDelta =
+          (main.currentTime - sync.mainVideoTime) / sync.mainRate
+        const target = sync.underlayClipTime + timelineDelta * sync.underlayRate
+        if (Number.isFinite(target) && Math.abs(under.currentTime - target) > 0.04) {
+          try {
+            under.currentTime = Math.max(0, target)
+          } catch {
+            /* ignore seek while loading */
+          }
+        }
+        lastUnderlayVideoTimeRef.current = under.currentTime
+        if (under.paused) void under.play().catch(() => {})
+      }
+      raf = requestAnimationFrame(tick)
+    }
+
+    raf = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(raf)
+  }, [isPlaying, playbackRate, transitionUnderlay])
+
+  useEffect(() => {
+    const prev = prevUnderlayRef.current
+    const main = videoRef.current
+    if (prev && !transitionUnderlay && main && videoSrc === prev.videoSrc) {
+      const handoff = lastUnderlayVideoTimeRef.current
+      if (Number.isFinite(handoff) && Math.abs(main.currentTime - handoff) > 0.05) {
+        try {
+          main.currentTime = handoff
+        } catch {
+          /* ignore seek while loading */
+        }
+      }
+    }
+    prevUnderlayRef.current = transitionUnderlay
+  }, [transitionUnderlay, videoSrc])
+
+  useEffect(() => {
     if (!isPlaying || !videoSrc || !onTimelineSync) return
     const video = videoRef.current
     if (!video) return
@@ -492,11 +624,31 @@ export const VideoPreview = forwardRef<VideoPreviewHandle, VideoPreviewProps>(fu
                 : 'relative h-full w-full'
             }
           >
+          {transitionUnderlay ? (
+            <div
+              className="absolute inset-0"
+              style={{ opacity: transitionUnderlay.opacity }}
+            >
+              <ClipTransformLayer
+                transform={transitionUnderlay.transform}
+                sourceAspect={sourceAspect}
+              >
+                <TransitionUnderlayMedia
+                  underlay={transitionUnderlay}
+                  filterCss={filterCss}
+                  filterIntensity={filterIntensity}
+                  muted={previewMuted}
+                  isPlaying={isPlaying}
+                  videoRef={underlayVideoRef}
+                />
+              </ClipTransformLayer>
+            </div>
+          ) : null}
           <div
             className="absolute inset-0"
             style={{
               opacity: mediaOpacity,
-              transition: 'opacity 120ms linear',
+              clipPath: mediaClipPath,
             }}
           >
             <ClipTransformLayer transform={clipTransform} sourceAspect={sourceAspect}>

@@ -43,6 +43,7 @@ export type VoiceCommandItem = {
     effectId?: string
     transitionKind?: 'fade' | 'dissolve' | 'wipe'
     transitionDuration?: number
+    joinIndex?: number
   }
 }
 
@@ -135,7 +136,7 @@ function createSpeechRecognition(): SpeechRecognition | null {
 }
 
 const VOICE_USAGE_TIPS = [
-  '转场：「在第 5 秒加一点转场，让视频更流畅」',
+  '转场：「第1和第2个片段之间加叠化」或「第10秒加淡化转场」（秒数须是衔接点）',
   '删除：「把 12 到 13 秒删掉」',
   '滤镜/特效：「加柔光滤镜」「加光晕特效」',
   '分割：「在第 8 秒切开」· 原声：「关掉原声」',
@@ -206,18 +207,23 @@ export function VoiceClipPanel({
   useEffect(() => {
     if (localCommands.length > 0) {
       setAiCommands([])
+      setAiParsing(false)
       return
     }
     const text = normalizeVoiceTranscript(transcript)
     if (text.length < 4) {
       setAiCommands([])
+      setAiParsing(false)
       return
     }
 
     let cancelled = false
+    const controller = new AbortController()
+    const abortTimer = window.setTimeout(() => controller.abort(), 20_000)
+
     const timer = window.setTimeout(() => {
       setAiParsing(true)
-      void fetchVoiceCommandsFromAi(text)
+      void fetchVoiceCommandsFromAi(text, controller.signal)
         .then((items) => {
           if (!cancelled) setAiCommands(items as VoiceCommandItem[])
         })
@@ -225,13 +231,17 @@ export function VoiceClipPanel({
           if (!cancelled) setAiCommands([])
         })
         .finally(() => {
+          window.clearTimeout(abortTimer)
           if (!cancelled) setAiParsing(false)
         })
     }, 700)
 
     return () => {
       cancelled = true
+      controller.abort()
       window.clearTimeout(timer)
+      window.clearTimeout(abortTimer)
+      setAiParsing(false)
     }
   }, [transcript, localCommands.length])
 
@@ -243,6 +253,8 @@ export function VoiceClipPanel({
     return getStylePresetSuggestion(normalizedForStyle)
   }, [normalizedForStyle])
   const isStyleApplied = Boolean(stylePresetSuggestion && appliedStyleIds.includes(stylePresetSuggestion.id))
+  const canConfirm =
+    confirmedIds.length > 0 || appliedStyleIds.length > 0 || Boolean(stylePresetSuggestion)
   const textSuggestion = useMemo(() => {
     if (!textAiSuggestion) return null
     return {
@@ -449,6 +461,9 @@ export function VoiceClipPanel({
     setSpeechError('')
     setCommands([])
     setConfirmedIds([])
+    setAppliedStyleIds([])
+    setAiCommands([])
+    setAiParsing(false)
   }
 
   return (
@@ -469,6 +484,9 @@ export function VoiceClipPanel({
             type="button"
             onClick={() => {
               void (async () => {
+                if (stylePresetSuggestion && !isStyleApplied) {
+                  onApplyStylePreset?.(stylePresetSuggestion)
+                }
                 const selected = commands.filter(
                   (item) =>
                     confirmedIds.includes(item.id) &&
@@ -484,7 +502,7 @@ export function VoiceClipPanel({
                 onConfirm()
               })()
             }}
-            disabled={busy || confirmedIds.length === 0}
+            disabled={busy || !canConfirm}
             className="flex h-8 w-8 items-center justify-center rounded-full bg-primary text-white shadow-[var(--shadow-soft)] transition-all hover:bg-primary-dark active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
             aria-label="确认"
           >
@@ -578,6 +596,10 @@ export function VoiceClipPanel({
                     prev.includes(stylePresetSuggestion.id)
                       ? prev
                       : [...prev, stylePresetSuggestion.id],
+                  )
+                  const styleConfirmId = `style-${stylePresetSuggestion.id}`
+                  setConfirmedIds((prev) =>
+                    prev.includes(styleConfirmId) ? prev : [...prev, styleConfirmId],
                   )
                 }}
                 className={`mt-2 rounded-full px-3 py-1 text-[10px] font-medium transition-colors ${

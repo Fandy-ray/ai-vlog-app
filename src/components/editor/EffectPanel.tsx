@@ -1,12 +1,12 @@
 import { Check, X } from 'lucide-react'
 import type { EffectPreset } from '@/data/effects'
-import { PREVIEW_POSTER } from '@/data/mockProject'
 import { EffectOverlay } from '@/components/editor/EffectOverlay'
 import { FilteredMedia } from '@/components/editor/FilteredMedia'
 
 interface EffectPanelProps {
   effects: EffectPreset[]
   selectedId: string
+  previewSrc: string
   filterCss?: string
   onSelect: (id: string) => void
   onConfirm: () => void
@@ -16,6 +16,7 @@ interface EffectPanelProps {
 export function EffectPanel({
   effects,
   selectedId,
+  previewSrc,
   filterCss = 'none',
   onSelect,
   onConfirm,
@@ -45,35 +46,37 @@ export function EffectPanel({
         </div>
       </header>
 
-      <ul className="flex gap-3 overflow-x-auto px-4 pb-4 pt-1">
+      <ul className="flex gap-3 overflow-x-auto px-4 pb-4 pt-2">
         {effects.map((effect) => {
           const active = selectedId === effect.id
           return (
-            <li key={effect.id} className="shrink-0">
+            <li key={effect.id} className="shrink-0 pt-0.5">
               <button
                 type="button"
                 onClick={() => onSelect(effect.id)}
                 className="flex flex-col items-center gap-1.5 transition-transform active:scale-95"
               >
                 <span
-                  className={`relative block h-[72px] w-[72px] overflow-hidden rounded-[var(--radius-md)] bg-track-video ${
+                  className={`relative block rounded-[var(--radius-md)] ${
                     active
-                      ? 'ring-2 ring-primary ring-offset-2'
+                      ? 'ring-2 ring-primary ring-offset-2 ring-offset-surface'
                       : 'ring-1 ring-border/60'
                   }`}
                 >
-                  <FilteredMedia
-                    src={PREVIEW_POSTER}
-                    filterCss={filterCss}
-                    intensity={100}
-                    className="h-full w-full"
-                  />
-                  <EffectOverlay effectId={effect.id} />
-                  {active && (
-                    <span className="absolute right-1 top-1 z-10 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-white">
-                      <Check size={10} strokeWidth={3} />
-                    </span>
-                  )}
+                  <span className="relative block h-[72px] w-[72px] overflow-hidden rounded-[var(--radius-md)] bg-track-video">
+                    <FilteredMedia
+                      src={previewSrc}
+                      filterCss={filterCss}
+                      intensity={100}
+                      className="h-full w-full"
+                    />
+                    <EffectOverlay effectId={effect.id} />
+                    {active && (
+                      <span className="absolute right-1 top-1 z-10 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-white">
+                        <Check size={10} strokeWidth={3} />
+                      </span>
+                    )}
+                  </span>
                 </span>
                 <span
                   className={`max-w-[72px] truncate text-[11px] ${

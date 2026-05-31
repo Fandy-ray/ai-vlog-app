@@ -31,7 +31,7 @@ import {
 } from '@/types/vlogGenerate'
 import { getDirectorStyleId, getDirectorType } from '@/utils/vlogDirectorStore'
 import { exportAllClipsForRegenerate } from '@/utils/vlogMaterialStore'
-import { formatDurationMs, formatTime } from '@/utils/formatTime'
+import { formatDurationMs, formatTime, clamp } from '@/utils/formatTime'
 import { SaveToPhotosGuide } from '@/components/SaveToPhotosGuide/SaveToPhotosGuide'
 import { resolveMediaUrl } from '@/utils/resolveMediaUrl'
 import { downloadVideo, isLikelyIOS, shareVideoForPhotos } from '@/utils/saveVideo'
@@ -108,10 +108,13 @@ export function CompletePage() {
   const { message, show, visible } = useToast()
   const [playing, setPlaying] = useState(false)
   const [progress, setProgress] = useState(0)
+  const [scrubbing, setScrubbing] = useState(false)
+  const [videoDuration, setVideoDuration] = useState(0)
   const [videoError, setVideoError] = useState(false)
   const [saving, setSaving] = useState(false)
   const [saveGuideOpen, setSaveGuideOpen] = useState(false)
   const videoRef = useRef<HTMLVideoElement>(null)
+  const progressRef = useRef<HTMLDivElement>(null)
   const [studioExport] = useState(() =>
     flow === 'studio' ? loadStudioExport() : null,
   )
@@ -151,23 +154,93 @@ export function CompletePage() {
     const video = videoRef.current
     if (!video || !videoUrl) return
     setVideoError(false)
+    setProgress(0)
+    setVideoDuration(0)
     const onTime = () => {
+      if (scrubbing) return
       if (video.duration && Number.isFinite(video.duration)) {
         setProgress(video.currentTime / video.duration)
+      }
+    }
+    const onMeta = () => {
+      if (video.duration && Number.isFinite(video.duration)) {
+        setVideoDuration(video.duration)
       }
     }
     const onPlay = () => setPlaying(true)
     const onPause = () => setPlaying(false)
     video.addEventListener('timeupdate', onTime)
+    video.addEventListener('loadedmetadata', onMeta)
     video.addEventListener('play', onPlay)
     video.addEventListener('pause', onPause)
+    onMeta()
     void video.play().catch(() => {})
     return () => {
       video.removeEventListener('timeupdate', onTime)
+      video.removeEventListener('loadedmetadata', onMeta)
       video.removeEventListener('play', onPlay)
       video.removeEventListener('pause', onPause)
     }
-  }, [videoUrl])
+  }, [videoUrl, scrubbing])
+
+  const seekRatioFromClientX = useCallback((clientX: number) => {
+    const el = progressRef.current
+    if (!el) return 0
+    const { left, width } = el.getBoundingClientRect()
+    if (width <= 0) return 0
+    return clamp((clientX - left) / width, 0, 1)
+  }, [])
+
+  const seekToRatio = useCallback(
+    (ratio: number) => {
+      const video = videoRef.current
+      if (!video || !videoUrl || videoError) return
+      const duration = video.duration && Number.isFinite(video.duration)
+        ? video.duration
+        : videoDuration
+      if (!duration) return
+      const next = ratio * duration
+      video.currentTime = next
+      setProgress(ratio)
+    },
+    [videoDuration, videoError, videoUrl],
+  )
+
+  const handleProgressPointerDown = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      e.preventDefault()
+      e.stopPropagation()
+      const bar = e.currentTarget
+      bar.setPointerCapture(e.pointerId)
+      setScrubbing(true)
+      seekToRatio(seekRatioFromClientX(e.clientX))
+
+      const onMove = (ev: PointerEvent) => {
+        seekToRatio(seekRatioFromClientX(ev.clientX))
+      }
+      const onUp = () => {
+        setScrubbing(false)
+        bar.releasePointerCapture(e.pointerId)
+        window.removeEventListener('pointermove', onMove)
+        window.removeEventListener('pointerup', onUp)
+      }
+      window.addEventListener('pointermove', onMove)
+      window.addEventListener('pointerup', onUp)
+    },
+    [seekRatioFromClientX, seekToRatio],
+  )
+
+  const playbackDurationSec =
+    videoDuration > 0
+      ? videoDuration
+      : !isDirector && studioExport?.durationSec
+        ? studioExport.durationSec
+        : 0
+  const currentTimeSec = playbackDurationSec * progress
+  const progressTimeLabel =
+    playbackDurationSec > 0
+      ? `${formatTime(currentTimeSec)}/${formatTime(playbackDurationSec)}`
+      : durationLabel
 
   const togglePlay = useCallback(() => {
     const video = videoRef.current
@@ -281,7 +354,6 @@ export function CompletePage() {
                 src={videoUrl}
                 playsInline
                 muted={false}
-                controls
                 preload="metadata"
                 className="h-full w-full object-cover"
                 onEnded={() => setPlaying(false)}
@@ -335,7 +407,7 @@ export function CompletePage() {
               </button>
             )}
 
-            <div className="pointer-events-none absolute bottom-4 left-4 right-4">
+            <div className="absolute bottom-4 left-4 right-4 z-10">
               {narration && (
                 <p className="line-clamp-2 text-sm font-semibold text-white drop-shadow">
                   {narration}
@@ -346,13 +418,35 @@ export function CompletePage() {
               )}
               {videoUrl && !videoError && (
                 <div className="mt-2 flex items-center gap-2">
-                  <span className="h-1 flex-1 overflow-hidden rounded-full bg-white/30">
-                    <span
-                      className="block h-full rounded-full bg-white transition-all"
-                      style={{ width: `${progress * 100}%` }}
-                    />
+                  <div
+                    ref={progressRef}
+                    role="slider"
+                    aria-label="播放进度"
+                    aria-valuemin={0}
+                    aria-valuemax={Math.round(playbackDurationSec)}
+                    aria-valuenow={Math.round(currentTimeSec)}
+                    aria-valuetext={`${formatTime(currentTimeSec)} / ${formatTime(playbackDurationSec)}`}
+                    className="group relative flex h-5 flex-1 cursor-pointer touch-none items-center"
+                    onPointerDown={handleProgressPointerDown}
+                  >
+                    <div className="relative h-1 w-full rounded-full bg-white/30">
+                      <div
+                        className={`absolute inset-y-0 left-0 rounded-full bg-white ${
+                          scrubbing ? '' : 'transition-[width] duration-75'
+                        }`}
+                        style={{ width: `${progress * 100}%` }}
+                      />
+                      <div
+                        className={`absolute top-1/2 h-3 w-3 -translate-y-1/2 rounded-full bg-white shadow ${
+                          scrubbing ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+                        }`}
+                        style={{ left: `calc(${progress * 100}% - 6px)` }}
+                      />
+                    </div>
+                  </div>
+                  <span className="shrink-0 text-xs tabular-nums text-white/80">
+                    {progressTimeLabel}
                   </span>
-                  <span className="text-xs tabular-nums text-white/80">{durationLabel}</span>
                 </div>
               )}
             </div>
