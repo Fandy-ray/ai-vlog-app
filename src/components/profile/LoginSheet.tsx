@@ -2,7 +2,9 @@ import { Eye, EyeOff, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { Button } from '@/components/Button'
 import { useUser } from '@/context/UserContext'
+import { useVerificationCode } from '@/hooks/useVerificationCode'
 import { hasAccountPassword } from '@/utils/accountPassword'
+import { isValidVerificationPhone } from '@/utils/verificationCode'
 
 interface LoginSheetProps {
   open: boolean
@@ -12,26 +14,24 @@ interface LoginSheetProps {
 
 type LoginMode = 'sms' | 'password'
 
-function isValidPhone(phone: string) {
-  return /^1\d{10}$/.test(phone)
-}
-
-function isValidCode(code: string) {
-  return /^\d{6}$/.test(code)
-}
-
 function isValidPassword(password: string) {
   return password.length >= 6
 }
 
 export function LoginSheet({ open, onClose, onSuccess }: LoginSheetProps) {
   const { login, loginWithPassword } = useUser()
+  const {
+    countdown,
+    hint: verificationHint,
+    requestCode,
+    resetVerificationCode,
+    verifyCode,
+  } = useVerificationCode('login')
   const [mode, setMode] = useState<LoginMode>('sms')
   const [phone, setPhone] = useState('')
   const [code, setCode] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
-  const [countdown, setCountdown] = useState(0)
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
@@ -41,13 +41,8 @@ export function LoginSheet({ open, onClose, onSuccess }: LoginSheetProps) {
     setMode('sms')
     setPassword('')
     setShowPassword(false)
-  }, [open])
-
-  useEffect(() => {
-    if (countdown <= 0) return
-    const timer = window.setTimeout(() => setCountdown((value) => value - 1), 1000)
-    return () => window.clearTimeout(timer)
-  }, [countdown])
+    resetVerificationCode()
+  }, [open, resetVerificationCode])
 
   if (!open) return null
 
@@ -55,6 +50,7 @@ export function LoginSheet({ open, onClose, onSuccess }: LoginSheetProps) {
     setPhone('')
     setCode('')
     setPassword('')
+    resetVerificationCode()
   }
 
   const finishLogin = (needsPasswordSetup: boolean) => {
@@ -67,21 +63,19 @@ export function LoginSheet({ open, onClose, onSuccess }: LoginSheetProps) {
 
   const sendCode = () => {
     setError('')
-    if (!isValidPhone(phone)) {
+    if (!isValidVerificationPhone(phone)) {
       setError('请输入正确的 11 位手机号')
       return
     }
-    setCountdown(60)
+    const result = requestCode(phone)
+    if (!result.ok) setError(result.message)
   }
 
   const handleSmsSubmit = async () => {
     setError('')
-    if (!isValidPhone(phone)) {
-      setError('请输入正确的 11 位手机号')
-      return
-    }
-    if (!isValidCode(code)) {
-      setError('请输入 6 位验证码')
+    const verification = verifyCode(phone, code)
+    if (!verification.ok) {
+      setError(verification.message)
       return
     }
 
@@ -99,7 +93,7 @@ export function LoginSheet({ open, onClose, onSuccess }: LoginSheetProps) {
 
   const handlePasswordSubmit = async () => {
     setError('')
-    if (!isValidPhone(phone)) {
+    if (!isValidVerificationPhone(phone)) {
       setError('请输入正确的 11 位手机号')
       return
     }
@@ -228,7 +222,7 @@ export function LoginSheet({ open, onClose, onSuccess }: LoginSheetProps) {
                 </button>
               </div>
               <p className="mt-1.5 text-[11px] text-text-muted">
-                演示环境：任意 6 位数字即可登录；首次登录需设置密码
+                {verificationHint || '先获取验证码再登录；首次登录需设置密码'}
               </p>
             </label>
           ) : (

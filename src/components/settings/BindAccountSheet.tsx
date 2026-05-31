@@ -2,6 +2,8 @@ import { X } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { Button } from '@/components/Button'
 import { useUser } from '@/context/UserContext'
+import { useVerificationCode } from '@/hooks/useVerificationCode'
+import { isValidVerificationPhone } from '@/utils/verificationCode'
 
 interface BindAccountSheetProps {
   open: boolean
@@ -9,19 +11,17 @@ interface BindAccountSheetProps {
   onSuccess?: () => void
 }
 
-function isValidPhone(phone: string) {
-  return /^1\d{10}$/.test(phone)
-}
-
-function isValidCode(code: string) {
-  return /^\d{6}$/.test(code)
-}
-
 export function BindAccountSheet({ open, onClose, onSuccess }: BindAccountSheetProps) {
   const { user, login } = useUser()
+  const {
+    countdown,
+    hint: verificationHint,
+    requestCode,
+    resetVerificationCode,
+    verifyCode,
+  } = useVerificationCode('bind-account')
   const [phone, setPhone] = useState('')
   const [code, setCode] = useState('')
-  const [countdown, setCountdown] = useState(0)
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
@@ -30,34 +30,26 @@ export function BindAccountSheet({ open, onClose, onSuccess }: BindAccountSheetP
     setPhone(user?.phone ?? '')
     setCode('')
     setError('')
-    setCountdown(0)
-  }, [open, user?.phone])
-
-  useEffect(() => {
-    if (countdown <= 0) return
-    const timer = window.setTimeout(() => setCountdown((v) => v - 1), 1000)
-    return () => window.clearTimeout(timer)
-  }, [countdown])
+    resetVerificationCode()
+  }, [open, resetVerificationCode, user?.phone])
 
   if (!open) return null
 
   const sendCode = () => {
     setError('')
-    if (!isValidPhone(phone)) {
+    if (!isValidVerificationPhone(phone)) {
       setError('请输入正确的 11 位手机号')
       return
     }
-    setCountdown(60)
+    const result = requestCode(phone)
+    if (!result.ok) setError(result.message)
   }
 
   const handleSubmit = async () => {
     setError('')
-    if (!isValidPhone(phone)) {
-      setError('请输入正确的 11 位手机号')
-      return
-    }
-    if (!isValidCode(code)) {
-      setError('请输入 6 位验证码')
+    const verification = verifyCode(phone, code)
+    if (!verification.ok) {
+      setError(verification.message)
       return
     }
 
@@ -138,7 +130,9 @@ export function BindAccountSheet({ open, onClose, onSuccess }: BindAccountSheetP
               {countdown > 0 ? `${countdown}s` : '获取验证码'}
             </Button>
           </div>
-          <p className="mt-2 text-[10px] text-text-muted">演示环境可使用任意 6 位数字验证码</p>
+          <p className="mt-2 text-[10px] text-text-muted">
+            {verificationHint || '验证码 5 分钟内有效'}
+          </p>
         </label>
 
         {error ? <p className="mt-3 text-xs text-red-500">{error}</p> : null}
