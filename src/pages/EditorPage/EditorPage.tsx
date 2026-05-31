@@ -62,8 +62,14 @@ import {
 } from '@/utils/voiceTransition'
 import {
   appendClipsFromImports,
+  attachLocalVideosToClips,
   probeVideoFile,
 } from '@/utils/videoImport'
+import {
+  countPendingCollabUploads,
+  syncCollabClipsToCloud,
+} from '@/utils/collabClipSync'
+import { clipHasPlayableVideo } from '@/utils/collaborativeSnapshot'
 import { exportEditedVideo } from '@/utils/export/exportVideo'
 import { PageShell } from '@/components/PageShell'
 import { Toast } from '@/components/Toast'
@@ -448,6 +454,8 @@ export function EditorPage() {
   })
 
   const collabInviteAttemptedRef = useRef(false)
+  const [collabClipsSyncing, setCollabClipsSyncing] = useState(false)
+  const collabSyncToastShownRef = useRef(false)
 
   const [titleDraft, setTitleDraft] = useState(snapshot.title)
   const [isEditingTitle, setIsEditingTitle] = useState(false)
@@ -1055,6 +1063,53 @@ export function EditorPage() {
     ],
   )
 
+  useEffect(() => {
+    const roomId = collaboration.room?.roomId
+    if (
+      !collaboration.active ||
+      !collaboration.isOwner ||
+      !roomId ||
+      countPendingCollabUploads(clips) === 0
+    ) {
+      return
+    }
+
+    let cancelled = false
+    setCollabClipsSyncing(true)
+    void (async () => {
+      try {
+        const synced = await syncCollabClipsToCloud(roomId, clips)
+        if (cancelled) return
+        const uploaded = synced.filter(
+          (clip, index) => clip.cloudVideoSrc && !clips[index]?.cloudVideoSrc,
+        ).length
+        if (uploaded > 0) {
+          applyClipsUpdate(synced, projectDuration)
+          if (!collabSyncToastShownRef.current) {
+            collabSyncToastShownRef.current = true
+            show(editorToasts.collabVideoSynced(uploaded))
+          }
+        }
+      } catch {
+        if (!cancelled) show(editorToasts.collabVideoSyncFailed)
+      } finally {
+        if (!cancelled) setCollabClipsSyncing(false)
+      }
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [
+    clips,
+    collaboration.active,
+    collaboration.isOwner,
+    collaboration.room?.roomId,
+    projectDuration,
+    applyClipsUpdate,
+    show,
+  ])
+
   const handleImportClick = useCallback(() => {
     if (importingVideos) return
     try {
@@ -1078,10 +1133,26 @@ export function EditorPage() {
         }
 
         const imported = await Promise.all(list.map((file) => probeVideoFile(file)))
-        const { clips: nextClips, duration } = appendClipsFromImports(clips, imported)
+        const missingLocal = clips.some((clip) => !clip.videoSrc)
 
-        applyClipsUpdate(nextClips, duration)
-        show(editorToasts.importSuccess(imported.length))
+        if (missingLocal) {
+          const { clips: nextClips, duration, attachedCount, extraCount } =
+            attachLocalVideosToClips(clips, imported)
+          applyClipsUpdate(nextClips, duration)
+          if (attachedCount > 0 && extraCount === 0) {
+            show(editorToasts.collabVideoAttached(attachedCount))
+          } else if (attachedCount > 0) {
+            show(
+              `已绑定 ${attachedCount} 个片段${extraCount > 0 ? `，并追加 ${extraCount} 个新片段` : ''}`,
+            )
+          } else {
+            show(editorToasts.importSuccess(imported.length))
+          }
+        } else {
+          const { clips: nextClips, duration } = appendClipsFromImports(clips, imported)
+          applyClipsUpdate(nextClips, duration)
+          show(editorToasts.importSuccess(imported.length))
+        }
       } catch {
         show(editorToasts.importFailed)
       } finally {
@@ -3373,9 +3444,17 @@ export function EditorPage() {
       return
     }
 
-    const hasLocalVideo = clips.some((clip) => clip.videoSrc)
+    const hasLocalVideo = clips.some((clip) => clipHasPlayableVideo(clip))
     if (!hasLocalVideo) {
-      show(editorToasts.exportNeedLocal)
+      if (collaboration.active && collabClipsSyncing && collaboration.isOwner) {
+        show(editorToasts.exportNeedLocalCollabOwner)
+        return
+      }
+      show(
+        collaboration.active
+          ? editorToasts.exportNeedLocalCollab
+          : editorToasts.exportNeedLocal,
+      )
       return
     }
 
@@ -3453,6 +3532,9 @@ export function EditorPage() {
     navigate,
     show,
     setIsPlaying,
+    collaboration.active,
+    collabClipsSyncing,
+    collaboration.isOwner,
   ])
 
   const handleCancelExport = () => {
@@ -3547,6 +3629,22 @@ export function EditorPage() {
         onToggleEditTitle={handleToggleEditTitle}
         onOpenCollaboration={() => collaboration.setSheetOpen(true)}
       />
+
+      {collaboration.active && !exporting && (
+        <>
+          {collaboration.isOwner && collabClipsSyncing && (
+            <div className="mx-4 mb-2 rounded-[var(--radius-lg)] border border-primary/20 bg-primary/5 px-3 py-2.5 text-xs leading-relaxed text-primary">
+              {editorToasts.collabVideoSyncing}
+            </div>
+          )}
+          {!collaboration.isOwner &&
+            !clips.some((clip) => clipHasPlayableVideo(clip)) && (
+              <div className="mx-4 mb-2 rounded-[var(--radius-lg)] border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs leading-relaxed text-amber-900">
+                正在等待创建者同步视频片段，同步完成后即可预览与导出。
+              </div>
+            )}
+        </>
+      )}
 
       <div
         data-editor-page=""

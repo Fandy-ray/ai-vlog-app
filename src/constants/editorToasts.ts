@@ -25,6 +25,14 @@ export const editorToasts = {
   textSaved: '文字已保存',
   exportNeedProject: '请先导入视频素材',
   exportNeedLocal: '导出需要本地导入的视频片段',
+  exportNeedLocalCollab:
+    '视频尚未同步完成，请等待创建者上传完毕或稍后重试',
+  exportNeedLocalCollabOwner:
+    '正在上传视频到协作空间，请稍候再导出',
+  collabVideoAttached: (n: number) => `已为 ${n} 个片段绑定本地视频，可以导出了`,
+  collabVideoSyncing: '正在同步视频到协作空间…',
+  collabVideoSynced: (n: number) => `已同步 ${n} 个视频片段，协作者可直接导出`,
+  collabVideoSyncFailed: '视频同步失败，请确认后端已启动并重试',
   exportDone: '导出完成，已存入记忆花园',
   exportFailed: '导出失败',
   exportMemHint: '，可尝试缩短时长或降低分辨率',

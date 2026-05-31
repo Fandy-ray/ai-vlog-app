@@ -227,17 +227,6 @@ export function useCollaborativeEditor({
     )
   }, [userId, userName])
 
-  useEffect(() => {
-    if (!state.active || applyingRemoteRef.current) return
-    if (syncTimerRef.current != null) window.clearTimeout(syncTimerRef.current)
-    syncTimerRef.current = window.setTimeout(() => {
-      broadcastSnapshot(snapshotRef.current)
-    }, 450)
-    return () => {
-      if (syncTimerRef.current != null) window.clearTimeout(syncTimerRef.current)
-    }
-  }, [snapshot, state.active, broadcastSnapshot])
-
   const snapshotWithClips = useCallback((): EditorSnapshot => {
     const currentClips = clipsRef.current
     const duration =
@@ -250,6 +239,17 @@ export function useCollaborativeEditor({
       videoDuration: duration,
     }
   }, [])
+
+  useEffect(() => {
+    if (!state.active || applyingRemoteRef.current) return
+    if (syncTimerRef.current != null) window.clearTimeout(syncTimerRef.current)
+    syncTimerRef.current = window.setTimeout(() => {
+      broadcastSnapshot(snapshotWithClips())
+    }, 450)
+    return () => {
+      if (syncTimerRef.current != null) window.clearTimeout(syncTimerRef.current)
+    }
+  }, [snapshot, clips, state.active, broadcastSnapshot, snapshotWithClips])
 
   const enableCollaboration = useCallback(async () => {
     const payload = serializeSnapshotForCollab(snapshotWithClips())

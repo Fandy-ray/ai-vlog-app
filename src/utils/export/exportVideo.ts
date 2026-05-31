@@ -1,5 +1,6 @@
 import type { VideoClip } from '@/data/mockProject'
 import type { EditorSnapshot } from '@/types/editorState'
+import { clipHasPlayableVideo } from '@/utils/collaborativeSnapshot'
 import {
   compositeFrameAt,
   disposeCompositeContext,
@@ -43,7 +44,7 @@ export async function exportEditedVideo(
     throw new Error('没有可导出的视频素材')
   }
 
-  const hasVideoSource = clips.some((c) => c.videoSrc)
+  const hasVideoSource = clips.some((c) => clipHasPlayableVideo(c))
   if (!hasVideoSource) {
     throw new Error('请先导入本地视频后再导出')
   }

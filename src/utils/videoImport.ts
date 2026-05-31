@@ -80,6 +80,64 @@ export async function probeVideoFile(file: File): Promise<ImportedVideoFile> {
   }
 }
 
+/** 将本地视频绑定到缺少 videoSrc 的片段（共同编辑协作者导入素材） */
+export function attachLocalVideosToClips(
+  existing: VideoClip[],
+  items: ImportedVideoFile[],
+): {
+  clips: VideoClip[]
+  duration: number
+  attachedCount: number
+  extraCount: number
+} {
+  if (!items.length) {
+    const duration = existing.length
+      ? existing[existing.length - 1].start + existing[existing.length - 1].duration
+      : 1
+    return {
+      clips: existing,
+      duration: Math.max(duration, 1),
+      attachedCount: 0,
+      extraCount: 0,
+    }
+  }
+
+  const clips = existing.map((clip) => ({ ...clip }))
+  const missing = clips.filter((clip) => !clip.videoSrc)
+  let itemIdx = 0
+  let attachedCount = 0
+
+  for (const clip of missing) {
+    if (itemIdx >= items.length) break
+    const item = items[itemIdx++]
+    clip.videoSrc = item.objectUrl
+    if (!clip.thumb) clip.thumb = item.thumb || item.objectUrl
+    if (!clip.poster) clip.poster = item.thumb || item.objectUrl
+    attachedCount++
+  }
+
+  const extra = items.slice(itemIdx)
+  if (extra.length) {
+    const appended = appendClipsFromImports(clips, extra)
+    return {
+      clips: appended.clips,
+      duration: appended.duration,
+      attachedCount,
+      extraCount: extra.length,
+    }
+  }
+
+  const duration = clips.length
+    ? clips[clips.length - 1].start + clips[clips.length - 1].duration
+    : 1
+  return {
+    clips,
+    duration: Math.max(duration, 1),
+    attachedCount,
+    extraCount: 0,
+  }
+}
+
 /** 在已有片段后追加导入的视频 */
 export function appendClipsFromImports(
   existing: VideoClip[],

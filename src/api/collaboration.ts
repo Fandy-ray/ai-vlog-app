@@ -82,3 +82,34 @@ export function buildCollaborationJoinUrl(inviteCode: string) {
   url.searchParams.set('collab', inviteCode)
   return url.toString()
 }
+
+export async function uploadCollabClip(
+  roomId: string,
+  clipId: string,
+  blobUrl: string,
+): Promise<{ clipId: string; uri: string }> {
+  const response = await fetch(blobUrl)
+  if (!response.ok) throw new Error('读取本地视频失败')
+  const blob = await response.blob()
+  const ext =
+    blob.type.includes('mp4') || blob.type.includes('avc')
+      ? 'mp4'
+      : blob.type.includes('webm')
+        ? 'webm'
+        : blob.type.includes('quicktime')
+          ? 'mov'
+          : 'mp4'
+
+  const form = new FormData()
+  form.append('clipId', clipId)
+  form.append('video', blob, `${clipId}.${ext}`)
+
+  const uploadRes = await fetch(`/api/collab/rooms/${encodeURIComponent(roomId)}/clips`, {
+    method: 'POST',
+    body: form,
+  })
+  if (!uploadRes.ok) throw new Error(await readErrorMessage(uploadRes))
+  const payload = await uploadRes.json()
+  if (payload.code !== 0) throw new Error(payload.message || '上传协作视频失败')
+  return payload.data
+}

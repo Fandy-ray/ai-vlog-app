@@ -13,6 +13,7 @@ import {
   setStudioEditorProject,
 } from '@/state/importedProject'
 import { STUDIO_EXPORT_RESULT_KEY } from '@/constants/projectFlow'
+import { resolveCollabSnapshotClips } from '@/utils/collaborativeSnapshot'
 import type { VideoClip } from '@/data/mockProject'
 import type { EditorSnapshot } from '@/types/editorState'
 import { formatTime } from '@/utils/formatTime'
@@ -29,7 +30,7 @@ function studioProjectFromCollabSnapshot(snapshot: EditorSnapshot): {
   clips: VideoClip[]
   duration: number
 } {
-  const clips = snapshot.videoClips ?? []
+  const clips = resolveCollabSnapshotClips(snapshot.videoClips ?? [])
   const duration =
     snapshot.videoDuration ??
     (clips.reduce((sum, clip) => sum + clip.duration, 0) || 1)
@@ -215,7 +216,7 @@ export function CreatePage() {
           <div className="mb-6 rounded-[var(--radius-xl)] border border-primary/20 bg-primary/5 p-5 shadow-[var(--shadow-card)]">
             <p className="text-sm font-semibold text-text">输入共同编辑邀请码</p>
             <p className="mt-1 text-xs leading-relaxed text-text-muted">
-              向创建者索取邀请码后加入。进入剪辑页后请导入与创建者对应的本地视频，滤镜、文字、贴纸等设置将自动同步。
+              向创建者索取邀请码后加入。创建者的视频将自动同步，滤镜、文字、贴纸等设置也会实时同步。
             </p>
             <input
               value={joinCode}

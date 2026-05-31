@@ -89,7 +89,7 @@ export function CollaborativeEditingSheet({
               共同编辑
             </h2>
             <p className="mt-1 text-xs text-text-muted">
-              开启后，他人可通过邀请码进入并同步编辑滤镜、文字、贴纸等设置
+              开启后，他人可通过邀请码进入并同步编辑滤镜、文字、贴纸等设置；视频片段会自动同步给协作者
             </p>
           </div>
           <button

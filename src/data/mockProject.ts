@@ -12,6 +12,8 @@ export interface VideoClip {
   poster: string
   /** 本地导入视频的 blob URL */
   videoSrc?: string
+  /** 共同编辑时上传到服务器的视频地址（协作者自动拉取） */
+  cloudVideoSrc?: string
   /** 源视频内的起始偏移（秒），用于分割后的片段 */
   sourceOffset?: number
   /** 画面变换：镜像 / 旋转 / 裁剪 */
