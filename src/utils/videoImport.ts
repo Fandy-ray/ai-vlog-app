@@ -1,4 +1,5 @@
 import type { VideoClip } from '@/data/mockProject'
+import type { MediaLocation } from '@/types/mediaLocation'
 
 export interface ImportedVideoFile {
   id: string
@@ -6,6 +7,7 @@ export interface ImportedVideoFile {
   objectUrl: string
   duration: number
   thumb: string
+  location?: MediaLocation
 }
 
 function waitForEvent<T extends EventTarget>(
@@ -40,7 +42,10 @@ function waitForEvent<T extends EventTarget>(
 }
 
 /** 读取本地视频时长并生成封面缩略图 */
-export async function probeVideoFile(file: File): Promise<ImportedVideoFile> {
+export async function probeVideoFile(
+  file: File,
+  location?: MediaLocation | null,
+): Promise<ImportedVideoFile> {
   const objectUrl = URL.createObjectURL(file)
   const video = document.createElement('video')
   video.preload = 'metadata'
@@ -77,6 +82,7 @@ export async function probeVideoFile(file: File): Promise<ImportedVideoFile> {
     objectUrl,
     duration,
     thumb,
+    location: location ?? undefined,
   }
 }
 
@@ -113,6 +119,7 @@ export function attachLocalVideosToClips(
     clip.videoSrc = item.objectUrl
     if (!clip.thumb) clip.thumb = item.thumb || item.objectUrl
     if (!clip.poster) clip.poster = item.thumb || item.objectUrl
+    if (!clip.location && item.location) clip.location = item.location
     attachedCount++
   }
 
@@ -162,6 +169,7 @@ export function appendClipsFromImports(
       thumb: item.thumb || item.objectUrl,
       poster: item.thumb || item.objectUrl,
       videoSrc: item.objectUrl,
+      location: item.location,
     }
     start += item.duration
     return clip
@@ -186,6 +194,7 @@ export function buildClipsFromImports(items: ImportedVideoFile[]): {
       thumb: item.thumb || item.objectUrl,
       poster: item.thumb || item.objectUrl,
       videoSrc: item.objectUrl,
+      location: item.location,
     }
     start += item.duration
     return clip

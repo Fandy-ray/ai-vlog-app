@@ -23,6 +23,7 @@ import {
   probeVideoFile,
   type ImportedVideoFile,
 } from '@/utils/videoImport'
+import { captureCurrentMediaLocation } from '@/utils/mediaLocation'
 
 type CreateMode = 'import' | 'join'
 
@@ -78,10 +79,15 @@ export function CreatePage() {
 
       setLoading(true)
       try {
+        const videos = Array.from(files).filter((file) => file.type.startsWith('video/'))
+        if (!videos.length) {
+          show('请选择视频文件（mp4、mov 等）')
+          return
+        }
+
+        const importLocation = await captureCurrentMediaLocation()
         const imported = await Promise.all(
-          Array.from(files)
-            .filter((file) => file.type.startsWith('video/'))
-            .map((file) => probeVideoFile(file)),
+          videos.map((file) => probeVideoFile(file, importLocation)),
         )
 
         if (!imported.length) {
@@ -309,7 +315,9 @@ export function CreatePage() {
                     <p className="truncate text-sm font-medium text-text">
                       {index + 1}. {item.name}
                     </p>
-                    <p className="mt-0.5 text-xs text-text-muted">本地视频 · 已就绪</p>
+                    <p className="mt-0.5 truncate text-xs text-text-muted">
+                      {item.location?.label ?? '本地视频 · 已就绪'}
+                    </p>
                   </div>
                   <button
                     type="button"

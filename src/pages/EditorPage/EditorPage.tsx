@@ -181,6 +181,10 @@ import {
 import { generateDoodleImage, storeDoodleAsset } from '@/api/doodle'
 import { recommendBgmFromDescription } from '@/utils/recommendBgmFromDescription'
 import { addExportedVlogToGarden } from '@/utils/gardenStore'
+import {
+  captureCurrentMediaLocation,
+  getDominantClipLocation,
+} from '@/utils/mediaLocation'
 import { assertAiVisionAllowed, assertAlbumAccessAllowed } from '@/utils/privacySettings'
 import {
   DEFAULT_DOODLE_PLACEMENT,
@@ -1132,7 +1136,10 @@ export function EditorPage() {
           return
         }
 
-        const imported = await Promise.all(list.map((file) => probeVideoFile(file)))
+        const importLocation = await captureCurrentMediaLocation()
+        const imported = await Promise.all(
+          list.map((file) => probeVideoFile(file, importLocation)),
+        )
         const missingLocal = clips.some((clip) => !clip.videoSrc)
 
         if (missingLocal) {
@@ -3465,6 +3472,10 @@ export function EditorPage() {
     exportCancelledRef.current = false
 
     const exportSnapshot = buildExportSnapshot()
+    const clipLocation = getDominantClipLocation(clips)
+    const gardenLocationPromise = clipLocation
+      ? Promise.resolve(clipLocation)
+      : captureCurrentMediaLocation()
     pushHistory(exportSnapshot)
     closeAllPanels()
 
@@ -3483,7 +3494,8 @@ export function EditorPage() {
       setExportedVideo(result)
       let savedToGarden = false
       try {
-        await addExportedVlogToGarden(result)
+        const gardenLocation = await gardenLocationPromise
+        await addExportedVlogToGarden(result, { location: gardenLocation })
         savedToGarden = true
       } catch {
         /* 成片已导出，花园入库失败不阻断完成页 */

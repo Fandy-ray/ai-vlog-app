@@ -1,6 +1,11 @@
 import type { GardenVlogItem } from '@/data/memories'
 import { GARDEN_VLOGS } from '@/data/memories'
+import type { MediaLocation } from '@/types/mediaLocation'
 import type { ExportResult } from '@/utils/export/exportVideo'
+import {
+  formatMediaLocationLabel,
+  normalizeMediaLocation,
+} from '@/utils/mediaLocation'
 
 const DB_NAME = 'memento-garden'
 const DB_VERSION = 1
@@ -21,6 +26,10 @@ interface GardenVlogRecord {
   lat: number
   lng: number
   videoBlob: Blob
+}
+
+interface AddExportedVlogOptions {
+  location?: MediaLocation | null
 }
 
 function openDb(): Promise<IDBDatabase> {
@@ -75,9 +84,33 @@ function coordsFromId(id: string): { lat: number; lng: number } {
   }
 }
 
+function resolveGardenLocation(
+  id: string,
+  location?: MediaLocation | null,
+): { lat: number; lng: number; label: string; hasRealLocation: boolean } {
+  const normalized = normalizeMediaLocation(location)
+  if (normalized) {
+    return {
+      lat: normalized.lat,
+      lng: normalized.lng,
+      label: normalized.label || formatMediaLocationLabel(normalized),
+      hasRealLocation: true,
+    }
+  }
+
+  const fallback = coordsFromId(id)
+  return {
+    ...fallback,
+    label: '本地 · 我的创作',
+    hasRealLocation: false,
+  }
+}
+
 function recordToGardenItem(record: GardenVlogRecord): GardenVlogItem {
   const date = new Date(record.createdAt)
-  const { lat, lng } = { lat: record.lat, lng: record.lng }
+  const fallback = coordsFromId(record.id)
+  const lat = Number.isFinite(record.lat) ? record.lat : fallback.lat
+  const lng = Number.isFinite(record.lng) ? record.lng : fallback.lng
   return {
     id: record.id,
     title: record.title,
@@ -131,10 +164,14 @@ export function revokeGardenVlogUrls(vlogs: GardenVlogItem[]) {
   }
 }
 
-export async function addExportedVlogToGarden(result: ExportResult): Promise<GardenVlogItem> {
+export async function addExportedVlogToGarden(
+  result: ExportResult,
+  options: AddExportedVlogOptions = {},
+): Promise<GardenVlogItem> {
   const createdAt = Date.now()
   const id = `user-${createdAt}`
-  const { lat, lng } = coordsFromId(id)
+  const gardenLocation = resolveGardenLocation(id, options.location)
+  const { lat, lng } = gardenLocation
   const record: GardenVlogRecord = {
     id,
     title: result.title?.trim() || '我的 Vlog',
@@ -147,6 +184,12 @@ export async function addExportedVlogToGarden(result: ExportResult): Promise<Gar
     lat,
     lng,
     videoBlob: result.blob,
+  }
+  record.location = gardenLocation.label
+  record.lat = gardenLocation.lat
+  record.lng = gardenLocation.lng
+  if (gardenLocation.hasRealLocation) {
+    record.description = `在 ${formatDateKey(new Date(createdAt))} 完成剪辑并标注到 ${gardenLocation.label}。`
   }
 
   const db = await openDb()

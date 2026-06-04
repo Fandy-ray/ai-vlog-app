@@ -45,11 +45,26 @@ export interface CollaborativeRoomClosedMessage {
   type: 'room_closed'
 }
 
+export interface CollaborativeErrorMessage {
+  type: 'error'
+  message?: string
+}
+
+export interface CollaborativeJoinedMessage {
+  type: 'joined'
+  clientId: string
+  snapshot: EditorSnapshot
+  enabled: boolean
+  presence: CollaborativeUser[]
+}
+
 export type CollaborativeWsMessage =
   | CollaborativeSnapshotMessage
   | CollaborativePresenceMessage
   | CollaborativeRoomStatusMessage
   | CollaborativeRoomClosedMessage
+  | CollaborativeErrorMessage
+  | CollaborativeJoinedMessage
 
 export interface CollaborativeEditorState {
   /** 是否已加入协作会话（含创建者） */

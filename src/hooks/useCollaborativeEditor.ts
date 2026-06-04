@@ -8,7 +8,6 @@ import {
   updateCollaborationRoom,
 } from '@/api/collaboration'
 import type {
-  CollaborativeConnectionState,
   CollaborativeEditorState,
   CollaborativeRoomInfo,
   CollaborativeUser,

@@ -46,7 +46,7 @@ export function squareStickerDimensions(
 
 /** 按内容宽高比校正贴纸 width/height，避免在视频上被拉伸 */
 export function normalizeStickerDimensions(
-  widthPct: number,
+  _widthPct: number,
   heightPct: number,
   contentAspect: number,
   videoAspect: number = DEFAULT_VIDEO_ASPECT,

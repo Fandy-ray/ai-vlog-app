@@ -1,4 +1,4 @@
-import { ArrowLeft, BarChart3, Image, ScanEye, Sparkles, Users } from 'lucide-react'
+import { ArrowLeft, BarChart3, Image, MapPin, ScanEye, Sparkles, Users } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { SettingsRow, SettingsSection } from '@/components/settings/SettingsRow'
@@ -64,6 +64,14 @@ export function PrivacySettingsPage() {
             icon={<ScanEye size={18} />}
             checked={settings.aiVisionEnabled}
             onChange={(aiVisionEnabled) => update({ aiVisionEnabled })}
+            borderTop
+          />
+          <SettingsToggleRow
+            label="允许记录作品位置"
+            hint="导入或导出本地剪辑时，可用浏览器定位给记忆花园地图标注地点"
+            icon={<MapPin size={18} />}
+            checked={settings.locationTaggingEnabled}
+            onChange={(locationTaggingEnabled) => update({ locationTaggingEnabled })}
             borderTop
           />
         </SettingsSection>

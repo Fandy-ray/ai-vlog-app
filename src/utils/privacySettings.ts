@@ -5,6 +5,8 @@ export interface PrivacySettings {
   albumAccessEnabled: boolean
   /** 允许将画面发送至 AI 进行识图、涂鸦生成等 */
   aiVisionEnabled: boolean
+  /** 允许给本地剪辑作品记录浏览器定位，用于记忆花园地图标注 */
+  locationTaggingEnabled: boolean
   /** 匿名使用统计，用于改进产品 */
   analyticsEnabled: boolean
   /** 个性化推荐 */
@@ -16,6 +18,7 @@ export interface PrivacySettings {
 export const DEFAULT_PRIVACY_SETTINGS: PrivacySettings = {
   albumAccessEnabled: true,
   aiVisionEnabled: true,
+  locationTaggingEnabled: true,
   analyticsEnabled: true,
   personalizedRecommendations: true,
   showNameInCollaboration: true,
@@ -33,6 +36,10 @@ export function isAlbumAccessAllowed() {
 
 export function isAiVisionAllowed() {
   return loadPrivacySettings().aiVisionEnabled
+}
+
+export function isLocationTaggingAllowed() {
+  return loadPrivacySettings().locationTaggingEnabled
 }
 
 export function assertAlbumAccessAllowed() {

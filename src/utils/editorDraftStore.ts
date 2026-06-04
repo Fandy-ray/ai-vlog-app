@@ -81,19 +81,13 @@ async function clipToStored(clip: VideoClip): Promise<StoredVideoClip> {
 }
 
 function storedToClip(stored: StoredVideoClip): VideoClip {
-  const videoSrc = stored.blob
-    ? URL.createObjectURL(stored.blob)
+  const { blob, ...clip } = stored
+  const videoSrc = blob
+    ? URL.createObjectURL(blob)
     : undefined
   return {
-    id: stored.id,
-    start: stored.start,
-    duration: stored.duration,
-    thumb: stored.thumb,
-    poster: stored.poster,
+    ...clip,
     videoSrc,
-    sourceOffset: stored.sourceOffset,
-    transform: stored.transform,
-    playbackRate: stored.playbackRate,
   }
 }
 
