@@ -1,11 +1,8 @@
 const express = require('express')
-const axios = require('axios')
 const { randomUUID } = require('crypto')
+const { chatCompletion } = require('../services/vivoChat')
 
 const router = express.Router()
-
-const DEFAULT_MODEL = 'Doubao-Seed-2.0-mini'
-const VIVO_API_URL = 'https://api-ai.vivo.com.cn/v1/chat/completions'
 
 function extractJson(text) {
   if (!text) return null
@@ -26,9 +23,23 @@ function extractJson(text) {
   return null
 }
 
+function mapAiErrorMessage(message = '') {
+  const msg = String(message).trim()
+  if (/invalid input context/i.test(msg)) {
+    return '暂未理解这句描述，请说明具体画面、风格或剪辑需求'
+  }
+  if (/content.?filter|safety|违规|敏感/i.test(msg)) {
+    return '描述可能包含不适用内容，请调整措辞后重试'
+  }
+  return msg || '调用 AI 接口失败'
+}
+
+function getAppKey() {
+  return process.env.VIVO_AIGC_APP_KEY || process.env.VIVO_APP_KEY || ''
+}
+
 router.post('/voice/text-suggestion', async (req, res) => {
-  const appKey = process.env.VIVO_AIGC_APP_KEY || process.env.VIVO_APP_KEY
-  if (!appKey) {
+  if (!getAppKey()) {
     return res.status(500).json({
       code: 500,
       message: '缺少 VIVO_AIGC_APP_KEY 或 VIVO_APP_KEY 环境变量',
@@ -45,41 +56,29 @@ router.post('/voice/text-suggestion', async (req, res) => {
 
   const requestId = randomUUID()
   const systemPrompt = [
-    '你是一个短视频文案助手。',
-    '根据用户的口语化需求，生成适合短视频画面上的简短文字建议。',
+    '你是短视频文案助手。用户会用自然语言描述想要的标题或解说文案。',
+    '即使用户描述很简短、口语化，也要尽量理解其意图并给出合理文案。',
+    '不要拒绝输入，不要输出错误说明，始终返回 JSON。',
     '要求：',
-    '1. 文案简短，适合放在视频上',
-    '2. 标题不超过16个字',
-    '3. 解说不超过30个字',
-    '4. 语气自然、符合短视频表达',
-    '5. 输出必须是 JSON，包含 title 和 caption 两个字段',
+    '1. title 不超过 16 个字，适合作为视频片头标题',
+    '2. caption 不超过 30 个字，适合作为画面解说或字幕',
+    '3. 语气自然，符合短视频表达',
+    '4. 只输出 JSON：{"title":"...","caption":"..."}',
   ].join('\n')
 
   try {
-    const response = await axios.post(
-      VIVO_API_URL,
-      {
-        model: process.env.VIVO_TEXT_MODEL || DEFAULT_MODEL,
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: userInput },
-        ],
-        stream: false,
-        temperature: 0.7,
-        max_tokens: 512,
-        reasoning_effort: 'minimal',
-      },
-      {
-        headers: {
-          'Content-Type': 'application/json; charset=utf-8',
-          Authorization: `Bearer ${appKey}`,
+    const content = await chatCompletion({
+      messages: [
+        { role: 'system', content: systemPrompt },
+        {
+          role: 'user',
+          content: `用户需求：${userInput}\n\n请输出 title 和 caption 的 JSON。`,
         },
-        params: { request_id: requestId },
-        timeout: 45000,
-      },
-    )
+      ],
+      temperature: 0.7,
+      maxTokens: 512,
+    })
 
-    const content = response.data?.choices?.[0]?.message?.content ?? ''
     const parsed = extractJson(content) || {}
     const title = typeof parsed.title === 'string' ? parsed.title.trim() : ''
     const caption = typeof parsed.caption === 'string' ? parsed.caption.trim() : ''
@@ -96,18 +95,16 @@ router.post('/voice/text-suggestion', async (req, res) => {
     })
   } catch (error) {
     const status = error?.response?.status || 500
-    const data = error?.response?.data
     return res.status(status).json({
       code: status,
-      message: data?.message || error.message || '调用 AI 接口失败',
-      detail: data || null,
+      message: mapAiErrorMessage(error?.response?.data?.message || error.message),
+      detail: error?.response?.data || null,
     })
   }
 })
 
 router.post('/voice/parse-commands', async (req, res) => {
-  const appKey = process.env.VIVO_AIGC_APP_KEY || process.env.VIVO_APP_KEY
-  if (!appKey) {
+  if (!getAppKey()) {
     return res.status(500).json({
       code: 500,
       message: '缺少 VIVO_AIGC_APP_KEY 或 VIVO_APP_KEY 环境变量',
@@ -121,68 +118,62 @@ router.post('/voice/parse-commands', async (req, res) => {
 
   const requestId = randomUUID()
   const systemPrompt = [
-    '你是短视频剪辑语音助手。把用户的口语指令解析为 JSON。',
+    '你是短视频剪辑语音助手。用户用口语描述剪辑需求，可能不规范、有方言、多意图混合、或缺少具体秒数。',
+    '你的任务是尽可能理解真实意图，输出可执行的 JSON，不要局限于固定词表。',
     '只输出 JSON，不要解释。格式：',
-    '{"commands":[{"type":"delete|keep|speed|rotate|mirror|bgm|music|transition|split|filter|effect|seek|mute|unmute|crop|narration|audio","start":12,"end":13,"time":10,"clipFrom":1,"clipTo":2,"rate":2,"direction":"left|right","text":"描述","filterId":"soft","effectId":"light","transition":"fade","transitionDuration":0.5}]}',
-    '规则：',
-    '- type=delete：删除时间段，需要 start/end（秒）',
-    '- type=keep：只保留时间段',
-    '- type=speed：倍速，rate 为数字（二倍速=2）',
-    '- type=rotate：direction 为 left 或 right；可选 rate 表示角度（默认 90）',
-    '- type=mirror：镜像',
-    '- type=bgm 或 music：给视频配乐，text 为用户想要的音乐风格描述',
-    '- type=transition：仅在已有片段衔接处加转场，禁止依赖播放头，禁止在中途切开。须二选一且必填其一：① time=衔接点秒数（必须是两段视频的交界秒数）；② clipFrom+clipTo=相邻片段序号（clipTo 必须等于 clipFrom+1，如第1与第2段之间则 clipFrom=1, clipTo=2）。若用户未说明衔接点秒数也未说明相邻片段序号，不要输出 transition 指令',
-    '- 示例：「第10秒加叠化转场」→ time=10, transition=dissolve；「第1和第2个片段之间加划像」→ clipFrom=1, clipTo=2, transition=wipe；只说「加转场」而无位置 → 不要输出',
-    '- type=split：在 time 处分割片段',
-    '- type=filter：filterId 为 warm|cool|soft|bw|cinematic|vintage|fresh|vivid|none',
-    '- type=effect：effectId 为 vignette|film|grain|light|dream|sparkle|snow|none',
-    '- type=seek：跳转到 time 秒',
-    '- type=mute：关闭原声；type=unmute：保留原声',
-    '- type=crop：进入裁剪；type=narration：旁白，text 为文稿',
-    '- type=audio：打开音频面板选曲',
-    '- 无法理解的不要编造，commands 可为空数组',
+    '{"commands":[{"type":"...","start":12,"end":13,"time":10,"clipFrom":1,"clipTo":2,"rate":2,"direction":"left|right","text":"描述","filterId":"soft","effectId":"light","transition":"fade","transitionDuration":0.5}],"style":{"filterId":"warm","effectId":"light","title":"风格名","hint":"说明"}}',
+    '',
+    'commands.type 可选：',
+    'delete, keep, speed, rotate, mirror, bgm, music, transition, split,',
+    'filter, effect, seek, mute, unmute, crop, narration, audio',
+    '',
+    '理解原则：',
+    '- 一句话可含多条 commands，全部提取出来',
+    '- 「太长了」「前面不要了」「切掉开头几秒」→ 推断 delete 或 split（合理估计秒数，无法确定则不编造）',
+    '- 「快点」「慢放」「二倍速」→ speed',
+    '- 「加柔光/电影感/黑白/复古」→ filter；「光晕/暗角/飘雪」→ effect',
+    '- 「海边旅行/低落/科技测评/我激动」等氛围 → filter+effect 和/或 style 字段',
+    '- 「配音乐/来首轻松的」→ bgm/music，text 保留用户原话',
+    '- 「旁白/配音」→ narration；「手动选曲/音频面板」→ audio',
+    '- 不要输出「打开某某面板」类指令，滤镜特效应直接给出 filterId/effectId',
+    '',
+    '字段说明：',
+    '- filterId: warm|cool|soft|bw|cinematic|vintage|fresh|vivid|none',
+    '- effectId: vignette|film|grain|light|dream|sparkle|snow|none',
+    '- transition: 必须有衔接点 time 或 clipFrom+clipTo(clipTo=clipFrom+1)，否则不输出',
+    '- style: 当用户描述整体风格/情绪/题材时使用，含 filterId/effectId/title/hint',
+    '- 无法确定数值时不要编造；commands 可为空数组，但仍可只给 style',
   ].join('\n')
 
   try {
-    const response = await axios.post(
-      VIVO_API_URL,
-      {
-        model: process.env.VIVO_TEXT_MODEL || DEFAULT_MODEL,
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: userInput },
-        ],
-        stream: false,
-        temperature: 0.2,
-        max_tokens: 512,
-        reasoning_effort: 'minimal',
-      },
-      {
-        headers: {
-          'Content-Type': 'application/json; charset=utf-8',
-          Authorization: `Bearer ${appKey}`,
+    const content = await chatCompletion({
+      messages: [
+        { role: 'system', content: systemPrompt },
+        {
+          role: 'user',
+          content: `用户原话：${userInput}\n\n请解析为 JSON。`,
         },
-        params: { request_id: requestId },
-        timeout: 45000,
-      },
-    )
+      ],
+      temperature: 0.35,
+      maxTokens: 1024,
+    })
 
-    const content = response.data?.choices?.[0]?.message?.content ?? ''
     const parsed = extractJson(content) || {}
     const commands = Array.isArray(parsed.commands) ? parsed.commands : []
+    const style =
+      parsed.style && typeof parsed.style === 'object' ? parsed.style : null
 
     return res.json({
       code: 0,
       message: 'ok',
-      data: { requestId, commands, raw: content },
+      data: { requestId, commands, style, raw: content },
     })
   } catch (error) {
     const status = error?.response?.status || 500
-    const data = error?.response?.data
     return res.status(status).json({
       code: status,
-      message: data?.message || error.message || '解析指令失败',
-      detail: data || null,
+      message: mapAiErrorMessage(error?.response?.data?.message || error.message),
+      detail: error?.response?.data || null,
     })
   }
 })

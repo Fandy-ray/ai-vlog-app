@@ -1,4 +1,5 @@
 import type { ParsedVoiceCommand } from '@/utils/voiceCommandParser'
+import type { StylePresetSuggestion } from '@/components/editor/VoiceClipPanel'
 import {
   buildVoiceTransitionLabel,
   voiceTransitionPayloadFromAi,
@@ -19,6 +20,52 @@ type AiCommandRow = {
   joinIndex?: number
   clipFrom?: number
   clipTo?: number
+}
+
+type AiStyleRow = {
+  filterId?: string
+  effectId?: string
+  title?: string
+  hint?: string
+}
+
+const FILTER_LABELS: Record<string, string> = {
+  none: '原图',
+  warm: '暖阳',
+  cool: '冷调',
+  fresh: '清新',
+  vintage: '复古',
+  cinematic: '电影',
+  vivid: '鲜艳',
+  soft: '柔光',
+  bw: '黑白',
+}
+
+const EFFECT_LABELS: Record<string, string> = {
+  none: '无',
+  vignette: '暗角',
+  film: '胶片',
+  grain: '颗粒',
+  light: '光晕',
+  dream: '梦幻',
+  sparkle: '闪粉',
+  snow: '飘雪',
+}
+
+function mapAiStyle(style: AiStyleRow | null): StylePresetSuggestion | null {
+  if (!style || typeof style !== 'object') return null
+  const filterId = String(style.filterId || 'none')
+  const effectId = String(style.effectId || 'none')
+  const title = String(style.title || 'AI 推荐风格').trim()
+  const hint = String(style.hint || '根据你的描述推荐').trim()
+  return {
+    id: `ai-style-${filterId}-${effectId}`,
+    title,
+    filter: FILTER_LABELS[filterId] ?? filterId,
+    effect: EFFECT_LABELS[effectId] ?? effectId,
+    hint,
+    keywords: /.^/u,
+  }
 }
 
 function mapAiCommands(rows: AiCommandRow[]): ParsedVoiceCommand[] {
@@ -99,7 +146,7 @@ function mapAiCommands(rows: AiCommandRow[]): ParsedVoiceCommand[] {
       items.push({
         id: `ai-filter-${filterId}`,
         command: 'filter',
-        label: `应用滤镜 · ${filterId}`,
+        label: `应用滤镜 · ${FILTER_LABELS[filterId] ?? filterId}`,
         payload: { filterId },
       })
     } else if (type === 'effect') {
@@ -107,7 +154,7 @@ function mapAiCommands(rows: AiCommandRow[]): ParsedVoiceCommand[] {
       items.push({
         id: `ai-effect-${effectId}`,
         command: 'effect',
-        label: `应用特效 · ${effectId}`,
+        label: `应用特效 · ${EFFECT_LABELS[effectId] ?? effectId}`,
         payload: { effectId },
       })
     } else if (type === 'seek' && (row.time != null || row.start != null)) {
@@ -154,11 +201,16 @@ function mapAiCommands(rows: AiCommandRow[]): ParsedVoiceCommand[] {
   return items
 }
 
-/** 本地规则未命中时，用蓝心 Chat 理解自然语言指令（需后端） */
+export interface VoiceAiParseResult {
+  commands: ParsedVoiceCommand[]
+  style: StylePresetSuggestion | null
+}
+
+/** 本地规则与 AI 并行解析，合并为剪辑指令（需后端） */
 export async function fetchVoiceCommandsFromAi(
   text: string,
   signal?: AbortSignal,
-): Promise<ParsedVoiceCommand[]> {
+): Promise<VoiceAiParseResult> {
   const res = await fetch('/api/voice/parse-commands', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json; charset=utf-8' },
@@ -170,5 +222,9 @@ export async function fetchVoiceCommandsFromAi(
     throw new Error(data?.message || 'AI 解析指令失败')
   }
   const rows = (data?.data?.commands ?? []) as AiCommandRow[]
-  return mapAiCommands(rows)
+  const style = mapAiStyle((data?.data?.style ?? null) as AiStyleRow | null)
+  return {
+    commands: mapAiCommands(rows),
+    style,
+  }
 }

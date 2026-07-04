@@ -48,6 +48,18 @@ export async function getFfmpeg(): Promise<FFmpeg> {
   return loadPromise
 }
 
+export async function deleteFfmpegFiles(ffmpeg: FFmpeg, names: string[]) {
+  await Promise.all(
+    names.map(async (name) => {
+      try {
+        await ffmpeg.deleteFile(name)
+      } catch {
+        // ignore missing files
+      }
+    }),
+  )
+}
+
 export async function cleanupWorkFiles(ffmpeg: FFmpeg, workId: string) {
   try {
     const entries = await ffmpeg.listDir('.')
@@ -164,9 +176,10 @@ export async function concatVideoSegments(
   ffmpeg: FFmpeg,
   workId: string,
   segmentNames: string[],
+  outputName?: string,
 ): Promise<string> {
-  const listFile = `${workId}_seglist.txt`
-  const videoOnly = `${workId}_video.mp4`
+  const listFile = `${workId}_seglist_${Date.now()}.txt`
+  const videoOnly = outputName ?? `${workId}_video.mp4`
 
   await ffmpeg.writeFile(
     listFile,
@@ -186,6 +199,7 @@ export async function concatVideoSegments(
     videoOnly,
   ])
 
+  await deleteFfmpegFiles(ffmpeg, [listFile])
   return videoOnly
 }
 

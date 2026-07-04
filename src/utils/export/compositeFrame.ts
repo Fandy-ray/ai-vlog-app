@@ -87,21 +87,22 @@ async function drawClipLayer(
   imageCache: Map<string, HTMLImageElement>,
   filterCss: string,
   intensity: number,
+  scratchCanvas: HTMLCanvasElement,
   alpha = 1,
   clipWidth?: number,
 ): Promise<void> {
+  if (scratchCanvas.width !== width) scratchCanvas.width = width
+  if (scratchCanvas.height !== height) scratchCanvas.height = height
+  const mediaCtx = scratchCanvas.getContext('2d')
+  if (!mediaCtx) return
+
   const video = videoElements.get(clip.id)
   if (video) {
     const target = Math.min(localTime, Math.max(0, video.duration - 0.05))
     await seekVideoAccurate(video, target)
-    const mediaCanvas = document.createElement('canvas')
-    mediaCanvas.width = width
-    mediaCanvas.height = height
-    const mediaCtx = mediaCanvas.getContext('2d')
-    if (mediaCtx) {
-      drawClipMedia(mediaCtx, video, width, height, clip.transform)
-      drawFilteredMedia(ctx, mediaCanvas, width, height, filterCss, intensity, alpha, clipWidth)
-    }
+    mediaCtx.clearRect(0, 0, width, height)
+    drawClipMedia(mediaCtx, video, width, height, clip.transform)
+    drawFilteredMedia(ctx, scratchCanvas, width, height, filterCss, intensity, alpha, clipWidth)
     return
   }
 
@@ -109,14 +110,9 @@ async function drawClipLayer(
   const img = src ? imageCache.get(src) : undefined
   if (!img) return
 
-  const mediaCanvas = document.createElement('canvas')
-  mediaCanvas.width = width
-  mediaCanvas.height = height
-  const mediaCtx = mediaCanvas.getContext('2d')
-  if (mediaCtx) {
-    drawClipMedia(mediaCtx, img, width, height, clip.transform)
-    drawFilteredMedia(ctx, mediaCanvas, width, height, filterCss, intensity, alpha, clipWidth)
-  }
+  mediaCtx.clearRect(0, 0, width, height)
+  drawClipMedia(mediaCtx, img, width, height, clip.transform)
+  drawFilteredMedia(ctx, scratchCanvas, width, height, filterCss, intensity, alpha, clipWidth)
 }
 
 function drawTextOverlay(
@@ -241,6 +237,8 @@ export interface CompositeContext {
   imageCache: Map<string, HTMLImageElement>
   stickerImages: Map<string, HTMLImageElement>
   doodleCanvas: HTMLCanvasElement
+  /** 复用画布，避免每帧 new canvas 导致内存/GC 压力 */
+  scratchCanvas: HTMLCanvasElement
 }
 
 export async function prepareCompositeContext(
@@ -252,6 +250,7 @@ export async function prepareCompositeContext(
   const imageCache = new Map<string, HTMLImageElement>()
   const stickerImages = new Map<string, HTMLImageElement>()
   const doodleCanvas = document.createElement('canvas')
+  const scratchCanvas = document.createElement('canvas')
 
   await document.fonts.ready
   await Promise.all(
@@ -310,6 +309,7 @@ export async function prepareCompositeContext(
     imageCache,
     stickerImages,
     doodleCanvas,
+    scratchCanvas,
   }
 }
 
@@ -332,6 +332,7 @@ export async function compositeFrameAt(
     imageCache,
     stickerImages,
     doodleCanvas,
+    scratchCanvas,
   } =
     context
   const width = options.width ?? EXPORT_WIDTH
@@ -355,6 +356,7 @@ export async function compositeFrameAt(
       imageCache,
       filterCss,
       intensity,
+      scratchCanvas,
       transitionBlend.underOpacity,
     )
 
@@ -370,6 +372,7 @@ export async function compositeFrameAt(
         imageCache,
         filterCss,
         intensity,
+        scratchCanvas,
         1,
         clipWidth,
       )
@@ -384,6 +387,7 @@ export async function compositeFrameAt(
         imageCache,
         filterCss,
         intensity,
+        scratchCanvas,
         transitionBlend.overOpacity,
       )
     }
@@ -404,10 +408,11 @@ export async function compositeFrameAt(
       imageCache,
       filterCss,
       intensity,
+      scratchCanvas,
     )
   }
 
-  drawEffectOverlay(ctx, width, height, snapshot.effectId ?? 'none', t, false)
+  drawEffectOverlay(ctx, width, height, snapshot.effectId ?? 'none', t, true)
 
   for (const text of snapshot.textOverlays) {
     if (text.content.trim() && isActiveAtTime(t, text)) {
@@ -448,4 +453,6 @@ export function disposeCompositeContext(context: CompositeContext) {
   context.stickerImages.clear()
   context.doodleCanvas.width = 0
   context.doodleCanvas.height = 0
+  context.scratchCanvas.width = 0
+  context.scratchCanvas.height = 0
 }

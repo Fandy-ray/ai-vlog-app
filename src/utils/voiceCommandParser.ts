@@ -578,3 +578,54 @@ export function parseVoiceCommands(raw: string): ParsedVoiceCommand[] {
 
   return items
 }
+
+function commandDedupeKey(item: ParsedVoiceCommand): string {
+  switch (item.command) {
+    case 'delete':
+    case 'keepRange':
+      return `${item.command}:${item.payload?.start ?? ''}:${item.payload?.end ?? ''}`
+    case 'split':
+    case 'seek':
+      return `${item.command}:${item.payload?.time ?? ''}`
+    case 'speed':
+      return `speed:${item.payload?.rate ?? ''}`
+    case 'filter':
+      return `filter:${item.payload?.filterId ?? ''}`
+    case 'effect':
+      return `effect:${item.payload?.effectId ?? ''}`
+    case 'transition':
+      return `transition:${item.payload?.joinIndex ?? item.payload?.time ?? ''}:${item.payload?.transitionKind ?? ''}`
+    case 'bgm':
+      return `bgm:${item.payload?.text ?? ''}`
+    default:
+      return item.command
+  }
+}
+
+/** 合并本地规则与 AI 解析结果：本地精确指令优先，AI 补充未覆盖的意图 */
+export function mergeVoiceCommands(
+  local: ParsedVoiceCommand[],
+  ai: ParsedVoiceCommand[],
+): ParsedVoiceCommand[] {
+  if (!ai.length) return local
+  if (!local.length) return ai
+
+  const merged: ParsedVoiceCommand[] = []
+  const seen = new Set<string>()
+
+  for (const item of local) {
+    const key = commandDedupeKey(item)
+    if (seen.has(key)) continue
+    seen.add(key)
+    merged.push(item)
+  }
+
+  for (const item of ai) {
+    const key = commandDedupeKey(item)
+    if (seen.has(key)) continue
+    seen.add(key)
+    merged.push(item)
+  }
+
+  return merged
+}

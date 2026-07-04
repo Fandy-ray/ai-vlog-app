@@ -336,8 +336,8 @@ export function MagicDoodlePanel({
               className="w-full resize-none rounded-[var(--radius-md)] border border-border bg-bg px-3 py-2 text-xs leading-5 text-text outline-none transition-colors placeholder:text-text-muted focus:border-primary"
               placeholder={
                 mode === 'style'
-                  ? '描述希望呈现的画面风格，也可直接在画面上绘制'
-                  : '描述想要的贴纸，也可直接在画面上绘制'
+                  ? '描述希望呈现的画面或情绪，如：激动庆祝、暖色胶片、梦幻发光'
+                  : '描述想要的贴纸或情绪，如：我激动、可爱猫咪、烟花庆祝'
               }
               maxLength={220}
             />

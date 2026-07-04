@@ -186,6 +186,8 @@ import {
   getDominantClipLocation,
 } from '@/utils/mediaLocation'
 import { assertAiVisionAllowed, assertAlbumAccessAllowed } from '@/utils/privacySettings'
+import { mapAiErrorMessage } from '@/utils/aiInputIntent'
+import { buildDoodleGenerationPrompt } from '@/utils/doodlePrompt'
 import {
   DEFAULT_DOODLE_PLACEMENT,
   isolateFlatBackground,
@@ -229,14 +231,7 @@ async function composeFrameAndDoodle(frameImage: string, doodleImage: string) {
 }
 
 function buildDoodlePrompt(draft: MagicDoodleDraft) {
-  const base = draft.prompt.trim()
-  if (draft.mode === 'sticker') {
-    return `${base}。将参考涂鸦优化成清晰精致的 vlog 贴纸元素，主体居中完整，纯白背景，不添加文字。`
-  }
-  if (draft.mode === 'style') {
-    return `${base}。参考图由当前视频帧和手绘涂鸦组成，请保持原始构图，把画面统一转换为指定风格，人物主体自然清晰。`
-  }
-  return `${base}。将参考涂鸦生成适合叠加到动态视频上的独立前景元素，主体完整，纯白背景，不包含道路、天空或原视频背景，不添加文字。`
+  return buildDoodleGenerationPrompt(draft.prompt, draft.mode, draft.hasDoodle)
 }
 
 function ensureTextId(text: TextOverlay, index: number): TextOverlay {
@@ -2265,7 +2260,9 @@ export function EditorPage() {
         selectSticker(overlay)
         show(result.storeWarning ? '魔法涂鸦已生成，远程图临时使用' : '魔法涂鸦已生成')
       } catch (error) {
-        const detail = error instanceof Error ? error.message : '请稍后重试'
+        const detail = mapAiErrorMessage(
+          error instanceof Error ? error.message : '请稍后重试',
+        )
         show(`魔法涂鸦失败：${detail}`)
       } finally {
         setDoodleGenerating(false)

@@ -151,7 +151,12 @@ async function generateImage({ prompt, image, parameters = {}, model = MODEL }) 
     return { ok: false, reason: 'vivo_not_configured' }
   }
 
-  const cleanPrompt = String(prompt || '').trim()
+  let cleanPrompt = String(prompt || '').trim()
+  // 完整 prompt 由前端 buildDoodleGenerationPrompt 组装；此处仅兜底纯功能名
+  if (/^(?:魔法涂鸦|涂鸦|magic\s*doodle|打开涂鸦|生成涂鸦|画涂鸦)$/iu.test(cleanPrompt)) {
+    cleanPrompt =
+      '【创作主题】精致可爱的手绘贴纸。单个主体居中，线条清晰，纯白背景，无文字。'
+  }
   if (!cleanPrompt) {
     return { ok: false, reason: 'empty_prompt', message: '请输入生成描述' }
   }
@@ -195,11 +200,14 @@ async function generateImage({ prompt, image, parameters = {}, model = MODEL }) 
       raw: result.data,
     }
   } catch (error) {
-    const detail =
+    const raw =
       error.response?.data?.message ||
       error.response?.data?.error?.message ||
       error.response?.data?.msg ||
       error.message
+    const detail = /invalid input context/i.test(String(raw))
+      ? '暂未理解这句描述，请具体说明想要的贴纸或画面风格'
+      : raw
     return {
       ok: false,
       reason: 'api_error',

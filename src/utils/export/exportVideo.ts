@@ -7,10 +7,16 @@ import {
   prepareCompositeContext,
 } from './compositeFrame'
 import { prepareExportAudio } from './exportAudio'
-import { chunkFrameCount, pickExportProfile } from './exportProfile'
+import {
+  chunkFrameCount,
+  pickExportProfile,
+  scoreExportComplexity,
+  segmentBatchSize,
+} from './exportProfile'
 import {
   cleanupWorkFiles,
   concatVideoSegments,
+  deleteFfmpegFiles,
   encodeSegmentFromRaw,
   getFfmpeg,
   muxAudio,
@@ -32,6 +38,13 @@ export interface ExportResult {
 }
 
 const PROGRESS_EVERY = 6
+const GC_YIELD_EVERY = 24
+
+function yieldToMainThread() {
+  return new Promise<void>((resolve) => {
+    window.setTimeout(resolve, 0)
+  })
+}
 
 export async function exportEditedVideo(
   clips: VideoClip[],
@@ -49,18 +62,23 @@ export async function exportEditedVideo(
     throw new Error('请先导入本地视频后再导出')
   }
 
-  const profile = pickExportProfile(duration)
+  const complexity = scoreExportComplexity(snapshot, clips)
+  const profile = pickExportProfile(duration, complexity)
   const { width, height, fps } = profile
   const workId = `exp_${Date.now()}`
   const totalFrames = Math.max(1, Math.ceil(duration * fps))
   const frameBytes = width * height * 4
-  const framesPerChunk = chunkFrameCount(profile)
+  const framesPerChunk = chunkFrameCount(profile, complexity)
   const chunkCount = Math.ceil(totalFrames / framesPerChunk)
+  const batchSize = segmentBatchSize(complexity)
+
+  const complexityHint =
+    complexity > 15 ? '（特效较多，已自动优化导出参数）' : ''
 
   onProgress?.({
     phase: 'prepare',
     progress: 0.02,
-    message: `加载编码器（${profile.label}，分 ${chunkCount} 段）…`,
+    message: `加载编码器（${profile.label}，分 ${chunkCount} 段）${complexityHint}…`,
   })
   await document.fonts.ready
 
@@ -78,8 +96,28 @@ export async function exportEditedVideo(
   }
 
   const frameOpts = { width, height }
-  const segmentNames: string[] = []
+  let pendingSegments: string[] = []
+  let mergedVideo: string | null = null
+  let mergeBatchIndex = 0
   let posterUrl = ''
+
+  const flushSegmentBatch = async () => {
+    if (pendingSegments.length === 0) return
+
+    const toMerge = mergedVideo
+      ? [mergedVideo, ...pendingSegments]
+      : pendingSegments
+    const outputName = `${workId}_roll${mergeBatchIndex}.mp4`
+    mergeBatchIndex += 1
+
+    const merged = await concatVideoSegments(ffmpeg, workId, toMerge, outputName)
+    const toDelete = [...pendingSegments]
+    if (mergedVideo) toDelete.push(mergedVideo)
+    await deleteFfmpegFiles(ffmpeg, toDelete)
+
+    pendingSegments = []
+    mergedVideo = merged
+  }
 
   try {
     let clipIndex = 0
@@ -95,7 +133,7 @@ export async function exportEditedVideo(
         chunkBuffer = new Uint8Array(chunkLen * frameBytes)
       } catch {
         throw new Error(
-          '内存不足，请缩短视频时长或关闭其他标签页后重试',
+          '内存不足，请缩短视频时长、减少文字/贴纸/特效，或关闭其他标签页后重试',
         )
       }
 
@@ -128,6 +166,10 @@ export async function exportEditedVideo(
 
         globalFrame++
 
+        if (globalFrame % GC_YIELD_EVERY === 0) {
+          await yieldToMainThread()
+        }
+
         if (i % PROGRESS_EVERY === 0 || i === chunkLen - 1) {
           const done = chunk * framesPerChunk + i + 1
           onProgress?.({
@@ -154,22 +196,29 @@ export async function exportEditedVideo(
         height,
         fps,
       )
-      segmentNames.push(segName)
+      pendingSegments.push(segName)
+
+      if (pendingSegments.length >= batchSize) {
+        await flushSegmentBatch()
+      }
+
+      await yieldToMainThread()
     }
 
     if (isCancelled?.()) throw new Error('cancelled')
+
+    await flushSegmentBatch()
+    const videoFile = mergedVideo
+    if (!videoFile) {
+      throw new Error('视频编码未生成任何片段')
+    }
 
     onProgress?.({ phase: 'audio', progress: 0.8, message: '正在混合音频…' })
     const audioFile = await prepareExportAudio(ffmpeg, workId, clips, duration, snapshot)
 
     if (isCancelled?.()) throw new Error('cancelled')
 
-    onProgress?.({ phase: 'encode', progress: 0.86, message: '正在拼接并封装 MP4…' })
-
-    const videoFile =
-      segmentNames.length === 1
-        ? segmentNames[0]
-        : await concatVideoSegments(ffmpeg, workId, segmentNames)
+    onProgress?.({ phase: 'encode', progress: 0.86, message: '正在封装 MP4…' })
 
     const mp4Data = await muxAudio(ffmpeg, workId, videoFile, audioFile)
 

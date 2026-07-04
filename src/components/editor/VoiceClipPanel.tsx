@@ -3,6 +3,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { fetchVoiceCommandsFromAi } from '@/api/voiceParse'
 import { EditorToolPanelShell } from '@/components/editor/EditorToolPanelShell'
 import {
+  hasTextGenerationIntent,
+  isFeatureNavigationIntent,
+  mapAiErrorMessage,
+} from '@/utils/aiInputIntent'
+import {
+  mergeVoiceCommands,
   normalizeVoiceTranscript,
   parseVoiceCommands,
 } from '@/utils/voiceCommandParser'
@@ -62,13 +68,16 @@ type TextAISuggestion = {
 }
 
 const STYLE_PRESET_SUGGESTIONS: StylePresetSuggestion[] = [
-  { id: 'daily', title: '日常', filter: '原图', effect: '无', hint: '自然真实，适合普通日常记录', keywords: /(日常|日记|vlog|记录)/u },
-  { id: 'outdoor', title: '户外活动 / 运动', filter: '暖阳', effect: '无', hint: '温暖明亮，适合户外和运动', keywords: /(户外|运动|跑步|骑行|活动|出行|旅行)/u },
-  { id: 'tech', title: '科技 / 讲解 / 产品', filter: '冷调', effect: '暗角', hint: '干净克制，突出主体和内容信息', keywords: /(科技|讲解|产品|测评|教程|拆解|发布)/u },
-  { id: 'low', title: '低落情绪片', filter: '黑白', effect: '胶片', hint: '情绪化、克制、有回忆感', keywords: /(低落|难过|失落|emo|情绪|回忆|伤感)/u },
-  { id: 'hype', title: '高能片段 / 短视频节奏点', filter: '电影', effect: '暗角', hint: '节奏更集中，适合高光和转折', keywords: /(高能|燃|节奏|卡点|高光|爆点|转场)/u },
-  { id: 'warm', title: '温暖情绪片', filter: '柔光', effect: '光晕', hint: '柔和发亮，适合温柔表达', keywords: /(温暖|治愈|柔和|光晕|温柔|暖心)/u },
-  { id: 'nostalgia', title: '怀旧片', filter: '复古', effect: '胶片', hint: '复古怀旧，适合回忆和故事感', keywords: /(怀旧|复古|回忆|老照片|年代感|往事)/u },
+  { id: 'daily', title: '日常', filter: '原图', effect: '无', hint: '自然真实，适合普通日常记录', keywords: /(日常|日记|vlog|记录|生活感)/u },
+  { id: 'outdoor', title: '户外活动 / 运动', filter: '暖阳', effect: '无', hint: '温暖明亮，适合户外和运动', keywords: /(户外|运动|跑步|骑行|活动|出行|旅行|爬山|徒步)/u },
+  { id: 'tech', title: '科技 / 讲解 / 产品', filter: '冷调', effect: '暗角', hint: '干净克制，突出主体和内容信息', keywords: /(科技|讲解|产品|测评|教程|拆解|发布|数码|开箱)/u },
+  { id: 'low', title: '低落情绪片', filter: '黑白', effect: '胶片', hint: '情绪化、克制、有回忆感', keywords: /(低落|难过|失落|emo|情绪|回忆|伤感|孤独|安静)/u },
+  { id: 'hype', title: '高能片段 / 短视频节奏点', filter: '电影', effect: '暗角', hint: '节奏更集中，适合高光和转折', keywords: /(高能|燃|节奏|卡点|高光|爆点|转场|热血|冲击)/u },
+  { id: 'warm', title: '温暖情绪片', filter: '柔光', effect: '光晕', hint: '柔和发亮，适合温柔表达', keywords: /(温暖|治愈|柔和|光晕|温柔|暖心|阳光|甜蜜)/u },
+  { id: 'nostalgia', title: '怀旧片', filter: '复古', effect: '胶片', hint: '复古怀旧，适合回忆和故事感', keywords: /(怀旧|复古|回忆|老照片|年代感|往事|旧时光)/u },
+  { id: 'creative', title: '创意梦幻', filter: '柔光', effect: '梦幻', hint: '艺术感、梦幻氛围', keywords: /(插画|创意|梦幻|艺术感|抽象)/u },
+  { id: 'food', title: '美食探店', filter: '暖阳', effect: '光晕', hint: '暖色调，适合美食与探店内容', keywords: /(美食|探店|吃饭|餐厅|好吃|料理|咖啡)/u },
+  { id: 'night', title: '夜景都市', filter: '电影', effect: '暗角', hint: '适合城市夜景与霓虹氛围', keywords: /(夜景|都市|城市|霓虹|深夜|街头)/u },
 ]
 
 function getStylePresetSuggestion(text: string): StylePresetSuggestion | null {
@@ -113,7 +122,9 @@ function mapSpeechRecognitionError(code: string): string {
     case 'language-not-supported':
       return '当前环境不支持中文语音识别，请换用 Chrome 桌面版'
     default:
-      return code ? `语音识别失败（${code}）` : '语音识别失败，请重试'
+      return code
+        ? mapAiErrorMessage(`语音识别失败（${code}）`)
+        : '语音识别失败，请重试'
   }
 }
 
@@ -136,10 +147,11 @@ function createSpeechRecognition(): SpeechRecognition | null {
 }
 
 const VOICE_USAGE_TIPS = [
-  '转场：「第1和第2个片段之间加叠化」或「第10秒加淡化转场」（秒数须是衔接点）',
   '删除：「把 12 到 13 秒删掉」',
+  '分割：「在第 8 秒切开」',
   '滤镜/特效：「加柔光滤镜」「加光晕特效」',
-  '分割：「在第 8 秒切开」· 原声：「关掉原声」',
+  '转场：「第 1 和第 2 段之间加叠化」',
+  '原声：「关掉原声」· 倍速：「二倍速」',
 ]
 
 const EDITABLE_VOICE_COMMANDS = new Set<VoiceCommandType>([
@@ -188,6 +200,7 @@ export function VoiceClipPanel({
   transcriptRef.current = transcript
   const [aiCommands, setAiCommands] = useState<VoiceCommandItem[]>([])
   const [aiParsing, setAiParsing] = useState(false)
+  const [aiStyleSuggestion, setAiStyleSuggestion] = useState<StylePresetSuggestion | null>(null)
 
   const localCommands = useMemo(
     () => parseVoiceCommands(transcript) as VoiceCommandItem[],
@@ -195,8 +208,10 @@ export function VoiceClipPanel({
   )
 
   const parsedCommands = useMemo<VoiceCommandItem[]>(() => {
-    if (localCommands.length) return localCommands
-    return aiCommands
+    return mergeVoiceCommands(
+      localCommands,
+      aiCommands as VoiceCommandItem[],
+    ) as VoiceCommandItem[]
   }, [localCommands, aiCommands])
 
   const normalizedForStyle = useMemo(
@@ -205,14 +220,10 @@ export function VoiceClipPanel({
   )
 
   useEffect(() => {
-    if (localCommands.length > 0) {
-      setAiCommands([])
-      setAiParsing(false)
-      return
-    }
     const text = normalizeVoiceTranscript(transcript)
-    if (text.length < 4) {
+    if (text.length < 2) {
       setAiCommands([])
+      setAiStyleSuggestion(null)
       setAiParsing(false)
       return
     }
@@ -224,17 +235,22 @@ export function VoiceClipPanel({
     const timer = window.setTimeout(() => {
       setAiParsing(true)
       void fetchVoiceCommandsFromAi(text, controller.signal)
-        .then((items) => {
-          if (!cancelled) setAiCommands(items as VoiceCommandItem[])
+        .then(({ commands, style }) => {
+          if (cancelled) return
+          setAiCommands(commands as VoiceCommandItem[])
+          setAiStyleSuggestion(style)
         })
         .catch(() => {
-          if (!cancelled) setAiCommands([])
+          if (!cancelled) {
+            setAiCommands([])
+            setAiStyleSuggestion(null)
+          }
         })
         .finally(() => {
           window.clearTimeout(abortTimer)
           if (!cancelled) setAiParsing(false)
         })
-    }, 700)
+    }, 500)
 
     return () => {
       cancelled = true
@@ -243,15 +259,15 @@ export function VoiceClipPanel({
       window.clearTimeout(abortTimer)
       setAiParsing(false)
     }
-  }, [transcript, localCommands.length])
+  }, [transcript])
 
   const [textAiSuggestion, setTextAiSuggestion] = useState<TextAISuggestion | null>(null)
   const [textAiLoading, setTextAiLoading] = useState(false)
   const [textAiError, setTextAiError] = useState('')
   const stylePresetSuggestion = useMemo(() => {
     if (!normalizedForStyle) return null
-    return getStylePresetSuggestion(normalizedForStyle)
-  }, [normalizedForStyle])
+    return getStylePresetSuggestion(normalizedForStyle) ?? aiStyleSuggestion
+  }, [normalizedForStyle, aiStyleSuggestion])
   const isStyleApplied = Boolean(stylePresetSuggestion && appliedStyleIds.includes(stylePresetSuggestion.id))
   const canConfirm =
     confirmedIds.length > 0 || appliedStyleIds.length > 0 || Boolean(stylePresetSuggestion)
@@ -267,7 +283,12 @@ export function VoiceClipPanel({
 
   useEffect(() => {
     const input = transcript.replace(/^识别结果[:：\s]*/u, '').trim()
-    if (!textApiEndpoint || !input) {
+    if (
+      !textApiEndpoint ||
+      !input ||
+      !hasTextGenerationIntent(input) ||
+      isFeatureNavigationIntent(input)
+    ) {
       setTextAiSuggestion(null)
       setTextAiError('')
       setTextAiLoading(false)
@@ -299,7 +320,9 @@ export function VoiceClipPanel({
       } catch (error) {
         if (!cancelled) {
           setTextAiSuggestion(null)
-          setTextAiError(error instanceof Error ? error.message : 'AI 请求失败')
+          setTextAiError(
+            mapAiErrorMessage(error instanceof Error ? error.message : 'AI 请求失败'),
+          )
         }
       } finally {
         if (!cancelled) setTextAiLoading(false)
@@ -463,6 +486,7 @@ export function VoiceClipPanel({
     setConfirmedIds([])
     setAppliedStyleIds([])
     setAiCommands([])
+    setAiStyleSuggestion(null)
     setAiParsing(false)
   }
 
@@ -610,14 +634,16 @@ export function VoiceClipPanel({
               </button>
             </div>
           ) : (
-            <p className="text-xs text-text-muted">说出“日常 / 科技 / 怀旧片”等词，会自动展示对应滤镜和特效。</p>
+            <p className="text-xs text-text-muted">
+              比如说「海边旅行」「电影感」「怀旧片」。
+            </p>
           )}
         </div>
 
         <div className="rounded-[var(--radius-md)] bg-bg px-3 py-2.5">
           <p className="mb-2 text-[10px] font-medium text-text-muted">文字建议</p>
           {textAiLoading ? (
-            <p className="text-xs text-text-muted">AI 正在生成文字建议…</p>
+            <p className="text-xs text-text-muted">正在生成文字建议…</p>
           ) : textSuggestion ? (
             <div className="rounded-[12px] bg-white px-3 py-2.5">
               <p className="text-xs font-medium text-text">标题：{textSuggestion.title}</p>
@@ -639,14 +665,16 @@ export function VoiceClipPanel({
           ) : textAiError ? (
             <p className="text-xs text-rose-500">{textAiError}</p>
           ) : (
-            <p className="text-xs text-text-muted">比如说“帮我做一个旅行标题”或“帮我写一个解说文案”。</p>
+            <p className="text-xs text-text-muted">
+              比如说「帮我写一个旅行标题」或「生成一段解说文案」。
+            </p>
           )}
         </div>
 
         <div className="rounded-[var(--radius-md)] bg-bg px-3 py-2.5">
           <p className="mb-2 text-[10px] font-medium text-text-muted">剪辑建议</p>
           {aiParsing ? (
-            <p className="mb-2 text-[10px] text-primary">AI 正在理解你的指令…</p>
+            <p className="mb-2 text-[10px] text-primary">正在解析指令…</p>
           ) : null}
           <div className="space-y-2.5 max-h-[26vh] overflow-y-auto pr-1">
             {commands.length > 0 ? (
